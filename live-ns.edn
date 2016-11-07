@@ -1,0 +1,8 @@
+(ns cljs-live.user
+  (:require
+    [firelisp.db :include-macros true]
+    [firelisp.rules :include-macros true]
+    [npm.marked]
+    [error-stack-parser]
+    [goog.events :as events])
+  (:import goog.net.XhrIo))
