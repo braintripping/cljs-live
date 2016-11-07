@@ -1,6 +1,6 @@
 # cljs-live
 
-**Objective:** package ClojureScript dependencies for the self-hosted compiler.
+Packaging ClojureScript dependencies for the self-hosted compiler.
 
 **Status:** Partly working.
 
