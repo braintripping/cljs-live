@@ -155,44 +155,11 @@
                                (conj m [(munge (ns->path goog-dep ".js"))
                                         (goog-src (symbol goog-dep))])) [] (distinct @goog-requires))})
 
-#_(defn strip [path]
-    (-> path
-        (string/replace cache-dir "")
-        (string/replace #"^[\./]+" "")))
 
-#_(->> #_(rest (file-seq cache-dir))
-    #_(filter #(and (string/ends-with? (:path %) ".cache.json")
-                    (not (string/starts-with? (-> (strip (:path %)) (path->ns)) "script."))))
-    (reduce (fn [caches {:keys [path]}]
-              (let [relative-path (strip path)
-                    namespace (path->ns relative-path)
-                    source-str (resource (ns->path namespace ".js"))]
-                (cond-> (-> caches
-                            (update :bundled-namespaces conj namespace)
-                            (assoc-in [:cache relative-path] (resource (ns->path namespace ".json.cache"))))
-                        source-str (assoc-in [:src (str (ns->path namespace ".js"))] source-str)))) {})
-    (#(update % :src merge (js-deps)))
-    (clj->js)
-    (js/JSON.stringify)
-    (str "window.bootstrap = ")
-    (spit "resources/public/js/compiled/bootstrap.js"))
+; todo
+; distinguish min or not-min version of of foreign-libs
+; include source maps? (they're big)
+; figure out goog dependencies
+; ultimately we want to be able to load modules separately, from different places on the web
 
-; 1. load target namespace
-; 2. read transitive foreign-lib dependencies of target
-; 3. include these foreign libs in the bootstrap cache (min or not-min)
-
-; 4. closure dependencies? #902 planck.repl
-; 5. Clojure source code + source maps? - #973 planck.repl
-
-; - we can track which javascript files planck reads.
-; - source files that are already read by Planck don't get noticed.
-; - there should be a canonical way to get a topologically sorted list
-;   of dependencies for a namespace. I need to know, *which* are the
-;   foreign libs that come from *my* dep.
-
-;; - include all the basic clojure stuff precompiled. Source + Cache. Copy from Planck.
-;; - include all the new/required #user# cache+source from Planck's cache directory.
-;; - include :foreign-libs deps from #user# (crawl ns for transitive deps)
-
-;; - include all cache files + macro files for deps that were loaded
-;; *** are there any macros missing? ***
+; in real-world scenarios you want to avoid packaging source (only analysis caches) for stuff that you're including anyway.

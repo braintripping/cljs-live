@@ -1,6 +1,6 @@
 # cljs-live
 
-Packaging ClojureScript dependencies for the self-hosted compiler.
+Package ClojureScript dependencies for the self-hosted compiler.
 
 **Status:** Partly working.
 
