@@ -1,59 +1,81 @@
 (ns cljs-live.core
   (:require
-    [re-view.core :as view :include-macros true]
-    [re-view.subscriptions :as sub :include-macros true]
-    [re-db.d :as d :include-macros true]
-    [goog.events]
-    [goog.net.XhrIo]
+    [sablono.core :refer-macros [html]]
+    [cljs-live.user]
     [cljs-live.compiler :as compiler]))
 
 (enable-console-print!)
 
-(def default-code
-  "(ns cljs-live.user (:require [goog.events :as events]) (:import goog.net.XhrIo))
-  "
-  #_"(ns cljs-live.dev (:require [firelisp.compile :as c]
-              [firelisp.rules :as rules :refer [at]]))
+(def examples (atom []))
 
-(c/compile-expr '(= auth.uid 1))
-(str (at \"/\" {:read true}))
-")
-
-(defonce _
-         (d/transact! [{:id             :cljs-live/state
-                        :rules          (str default-code)
-                        :rules-compiled ""
-                        :rules-evaled   ""}]))
-
-(d/compute! [:cljs-live/state :rules-compiled]
-            (compiler/eval-str (d/get :cljs-live/state :rules)))
-
-(def x
-  (view/component
-    :subscriptions
-    {:fire (sub/db [:cljs-live/state])}
-    :render
-    (fn [this _ {{:keys [rules rules-compiled current-word]} :fire}]
-      [:div
-       [:textarea {:on-change #(d/transact! [[:db/add :cljs-live/state :rules (.-value (.-currentTarget %))]])
-                   ;:on-key-up #(prn :keyup)
-                   :value     rules
-                   :style     {:width 300 :height 100}}]
-
-       [:div {:style {:color "#aaa"}}
-
-        (let [{:keys [error value]} rules-compiled]
-          (if error (str error)
-                    (if (fn? value)
-                      (value)
-                      (str value))))]
-
-       [:div "Current word: " current-word]
-
-       ])))
-
+(defn render-examples []
+  (html [:div
+         [:p "Press command-enter to eval"]
+         (for [{:keys [render]} @examples]
+           (render))]))
 
 (defn main []
-  (view/render-to-dom (x) "app"))
+  (js/ReactDOM.render (render-examples) (js/document.getElementById "app")))
+
+(declare main)
+
+(defn example [initial-source]
+  (let [source (atom initial-source)
+        value (atom)
+        eval (fn []  (reset! value (try (compiler/eval-str @source)
+                                        (catch js/Error e
+                                          (.debug js/console e)
+                                          (str e)))))
+        render (fn [] (html [:div
+
+                             [:textarea {:on-change   #(reset! source (.-value (.-currentTarget %)))
+                                         :on-key-down #(when (and (= 13 (.-which %)) (.-metaKey %))
+                                                        (eval))
+                                         :value       @source
+                                         :style       {:width 300 :height 100 :display "inline-block"}}]
+                             [:div {:style {:color "#aaa" :display "inline-block" :margin 20}}
+                              (let [{:keys [value error]} @value]
+                                (if error (str error)
+                                          (if (fn? value)
+                                            (value)
+                                            (if value (str value)
+                                                      "nil"))))]]))]
+    (eval)
+    (add-watch source :src main)
+    (add-watch value :val main)
+    {:render render}))
+
+(swap! examples conj
+
+       ;; foreign lib copied from npm and defined in deps.cljs
+       (example "(require '[npm.marked])\n\n(js/marked \"Hello from markdown\") ")
+
+       ;; foreign lib from cljsjs
+       (example "(require '[cljsjs.bcrypt])\n\n(let [bcrypt js/dcodeIO.bcrypt]\n  (.genSaltSync bcrypt 10))\n")
+
+       ;; personal lib, uses macros
+       (example "(require '[firelisp.rules :refer-macros [at]])")
+
+       ;; unable to load sablono.compiler in Planck. maybe a macro-loading dependency/order issue.
+       #_(example "(require '[sablono.core :refer-macros [html]])")
+
+       ;; unable to load quil in Planck because of browser dependencies.
+       #_(example "(require '[quil.core :as q])")
+
+       ;; hiccups
+       #_(example "(ns myns
+  (:require-macros [hiccups.core :as hiccups :refer [html]])
+  (:require [hiccups.runtime :as hiccupsrt]))
+
+(hiccups/defhtml my-template []
+  [:div
+    [:a {:href \"https://github.com/weavejester/hiccup\"}
+      \"Hiccup\"]])")
+
+       )
+
+(compiler/preloads!)
 
 (main)
+
+(prn :pre-loads)

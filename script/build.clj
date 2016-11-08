@@ -1,20 +1,20 @@
 (ns script.build
   (:require [cljs.build.api]))
 
-(prn "Starting compile..." (first *command-line-args*))
+(prn "Starting compile...")
 
-(def path "resources/public/js/compiled/")
+(def compile-dir "resources/public/js/compiled/")
 
-(let [[env src-path] *command-line-args*
-      build (if (= "dev" env)
-              cljs.build.api/watch
-              cljs.build.api/build)]
-  (time (build src-path
-               {:output-to      (str path "cljs_live.js")
-                :output-dir     (str path "out")
-                :pseudo-names   true
-                :optimizations  :simple
-                :dump-core      false
-                :source-map     (str path "cljs_live.js.map")
-                :parallel-build true})))
+(let [build-fn (if (= "--watch" (first *command-line-args*))
+                 cljs.build.api/watch
+                 cljs.build.api/build)]
+  (time (build-fn "src"
+                  {:main           "cljs-live.core"
+                   :output-to      (str compile-dir "cljs_live.js")
+                   :output-dir     (str compile-dir "out")
+                   :cache-analysis true
+                   :optimizations  :simple
+                   :dump-core      false
+                   :source-map     (str compile-dir "cljs_live.js.map")
+                   :parallel-build true})))
 

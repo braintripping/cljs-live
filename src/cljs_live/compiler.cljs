@@ -5,69 +5,87 @@
             [goog.object :as gobj]))
 
 (enable-console-print!)
-(defn log [& args]
-  ; (apply prn args)
-  )
+
+(defonce fire-st (cljs/empty-state))
+(defonce fire-env (atom {:ns 'cljs-live.user}))
 
 (defn- transit-json->cljs
   [json]
   (let [rdr (transit/reader :json)]
     (transit/read rdr json)))
 
-(defonce fire-env (atom {:ns 'cljs-live.dev}))
-(defonce fire-st (cljs/empty-state))
-
-(defn get-cache [k]
-  (log [:get-cache k])
+(defn get-cache
+  "Read from preload cache"
+  [k]
   (gobj/getValueByKeys js/window (clj->js (conj [".cljs_live_cache"] k))))
 
-(def fake-load-result {:source "" :lang :js})
-
-(defn load-js [{:keys [path macros]} cb]
+(defn load-fn
+  "Load requirements from bundled deps"
+  [{:keys [path macros]} cb]
   (let [path (cond-> path
                      macros (str "$macros"))
-        source (get-cache (str (munge path) ".js"))
+        [source lang] (or (some-> (get-cache (str (munge path) ".js"))
+                                  (list :js))
+                          (some-> (get-cache (str (munge path) ".clj"))
+                                  (list :clj)))
         cache (get-cache (str (munge path) ".cache.json"))]
-    (if source
-      (log [:load-js path
-            {:source (some-> source (subs 0 10))}
-            {:cache (some-> cache (subs 0 10))}])
-      (log [:no-source path]))
+
     (cb (if source
           (cond-> {:source source
-                   :lang   :js}
+                   :lang   lang}
                   cache (assoc :cache (transit-json->cljs cache)))
-          fake-load-result))))
+          {:source "" :lang :js}))))
 
-(defn eval [form]
+(defn compiler-opts
+  []
+  {:load          load-fn
+   :eval          cljs/js-eval
+   :ns            (:ns @fire-env)
+   :context       :expr
+   :source-map    true
+   :def-emits-var true})
+
+(defn preloads!
+  "Load bundled analysis caches and macros into compiler state"
+  []
+  (doseq [path (js/Object.keys (gobj/get js/window ".cljs_live_preload_caches"))]
+    (let [{:keys [name] :as cache} (-> (gobj/getValueByKeys js/window #js [".cljs_live_preload_caches" path])
+                                       (transit-json->cljs))]
+      (cljs/load-analysis-cache! fire-st name cache)))
+
+  #_(doseq [path (js/Object.keys (gobj/get js/window ".cljs_live_preload_macros"))]
+      (let [src (-> (gobj/getValueByKeys js/window #js [".cljs_live_preload_macros" path]))]
+        (cljs/eval-str fire-st src path (assoc (compiler-opts) :macros-ns true) #(when (:error %)
+                                                                                  (prn %)
+                                                                                  (aset js/window "aa" (.-cause (:error %)))
+                                                                                  (some->> (.-cause (:error %))
+                                                                                           ((fn [e]
+                                                                                              (.error js/console e)
+                                                                                              (.-cause e)))
+                                                                                           (.error js/console)))))))
+
+(defn eval
+  "Eval a single form, keeping track of current ns in fire-env."
+  [form]
   (let [result (atom)
-        ns? (and (seq? form) (= 'ns (first form)))
-        t0 (.now js/Date)]
-    (cljs/eval fire-st form {:load          load-js
-                             :eval          cljs/js-eval
-                             :ns            (:ns @fire-env)
-                             :context       :expr
-                             :source-map    true
-                             :def-emits-var true} (partial reset! result))
+        ns? (and (seq? form) (#{'ns} (first form)))]
+    (cljs/eval fire-st form (compiler-opts) (partial reset! result))
     (when (and ns? (contains? @result :value))
       (swap! fire-env assoc :ns (second form)))
-    (log [:eval (- (.now js/Date) t0) form])
-    (when-let [error (:error @result)]
-      (log [:eval-error error]))
     @result))
 
-(defn eval-str [src]
+(defn eval-str
+  "Eval string by first reading all top-level forms, then eval'ing them one at a time."
+  [src]
   (let [forms (try (r/read-string (str "[" src "]"))
                    (catch js/Error e
-                     (.error js/console "read-str error" e)
+                     (.debug js/console "read-str error" e)
+                     (prn src)
                      (prn (.-data e))))]
     (last (for [form forms]
-            (eval form)))))
-(defonce __
-         (let [cache-names (atom #{})
-               t0 (.now js/Date)]
-           (doseq [cache-str (gobj/getValueByKeys js/window #js [".cljs_live_cache" "preload-caches"])]
-             (let [{:keys [name] :as cache} (transit-json->cljs cache-str)]
-               (swap! cache-names conj name)
-               (cljs/load-analysis-cache! fire-st name cache)))
-           (log [:cache-preload (- (.now js/Date) t0) @cache-names])))
+            (do (prn :form form)
+                (eval form))))))
+
+;; some macros we can and bundle the js (those which work with Planck)
+;; some macros we have to include in the compiled-build and only run the analysis cache
+;; some macros we have to include the source and run in the client

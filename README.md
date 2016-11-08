@@ -2,29 +2,30 @@
 
 Package ClojureScript dependencies for the self-hosted compiler.
 
-**Status:** Partly working.
+**Status:** Alpha, partly working.
 
 **Requirements:** [Planck](planck-repl.org) (I'm using master)
 
-### Instructions
+### Usage
 
-Put your dependences in `project.clj`, run `lein deps`, and edit `live-ns.edn` to include the deps you want to use in a self-hosted environment.
+1. Make sure dependencies are on your `lein classpath`. Eg/ put your deps in `project.clj` and run `lein deps`.
+2. Edit `live-deps.clj`, or create another file of the same format.
+3. Run `scripts/bootstrap.cljs --live-deps <your-dep-file>`, and include the output file in your webpage.
+4. Have a look at `cljs-live.compiler` and pay special attention to `load-fn` and `preload-caches!`.
 
-Then run `./build.sh`. The following files will be created:
+The `bundle.sh` script loads npm dependencies via `lein-npm`, copies `deps.cljs` to `opts.clj` as required for Planck to find foreign-libs correctly, creates all dep bundles listed in the file provided by `--live-deps`, and builds this example project.
 
-`resources/public/js/compiled/cljs_live_cache.js`
+### live-deps file format
 
-- created by `scripts/bootstrap.cljs`
-- a cache of compiled javascript source files, foreign libs, and analysis caches to be loaded by the self-hosted compiler
+The file should contain a list of maps. Each entry represents an output file which will contain javascript source and analysis caches for the required namespaces. Entries in each map will be run in the body of an `ns` expression, except for:
 
-`resources/public/js/compiled/cljs_live.js`
-
- - created by `scripts/build.clj`
- - a regular ClojureScript build
- - look in `cljs-live.compiler` to see the load-function that reads from the cache, enabling ordinary `(ns..)` and `(require..)` expressions
+ - `:require-cache` lists namespaces for which **only** the analysis cache (not compiled source) will be bundled.
+ - `:output-to` is the destination path for the emitted javascript.
 
 Open index.html to view.
 
 ### Limitations
 
 - Does not package goog.* requirements
+- Libraries that cannot be loaded by Planck are not packaged correctly (eg. Sablono)
+- cljs.js foreign libs are not included
