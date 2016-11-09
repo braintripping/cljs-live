@@ -17,7 +17,7 @@
 (defn render-root []
   (js/ReactDOM.render (render-examples) (js/document.getElementById "app")))
 
-(defn example [initial-source]
+(defn example [label initial-source]
   (let [source (atom initial-source)
         value (atom)
         eval (fn []  (reset! value (try (compiler/eval-str @source)
@@ -25,7 +25,7 @@
                                           (.debug js/console e)
                                           (str e)))))
         render (fn [] (html [:div
-
+                             [:p [:strong label ":"]]
                              [:textarea {:on-change   #(reset! source (.-value (.-currentTarget %)))
                                          :on-key-down #(when (and (= 13 (.-which %)) (.-metaKey %))
                                                         (eval))
@@ -34,7 +34,7 @@
                              [:div {:style {:color "#aaa" :display "inline-block" :margin 20}}
                               (let [{:keys [value error]} @value]
                                 (if error (str error)
-                                          (if (fn? value)
+                                          (if (js/React.isValidElement value)
                                             (value)
                                             (if value (str value)
                                                       "nil"))))]]))]
@@ -47,17 +47,19 @@
 
 (swap! examples conj
 
-       ;; foreign lib copied from npm and defined in deps.cljs
-       (example "(require '[npm.marked])\n\n(js/marked \"Hello from markdown\") ")
+       (example "foreign lib from cljsjs"
+                "(require '[cljsjs.bcrypt])\n\n(let [bcrypt js/dcodeIO.bcrypt]\n  (.genSaltSync bcrypt 10))\n")
 
-       ;; foreign lib from cljsjs
-       (example "(require '[cljsjs.bcrypt])\n\n(let [bcrypt js/dcodeIO.bcrypt]\n  (.genSaltSync bcrypt 10))\n")
 
-       ;; personal lib, uses macros and foreign libs
-       (example "(ns cljs-live.user \n  (:require [firelisp.rules :refer-macros [at]]))\n\n(at \"/\" {:write true})")
+       (example "foreign lib copied from npm and defined in deps.cljs"
+                "(require '[npm.marked])\n\n(js/marked \"Hello from markdown\") ")
 
-       ;; goog deps
-       (example "(ns cljs-live.user \n  (:require [goog.events :as events]))\n\n(events/listenOnce js/window \"mousedown\" #(prn :mouse-down))")
+       (example "CLJS library on Clojars that uses macros and foreign libs"
+                "(ns cljs-live.user \n  (:require [firelisp.rules :refer-macros [at]]))\n\n(at \"/\" {:write true})")
+
+       (example
+         "Google Closure Library deps"
+         "(ns cljs-live.user \n  (:require [goog.events :as events]))\n\n(events/listenOnce js/window \"mousedown\" #(prn :mouse-down))")
 
        ;; unable to load sablono.compiler in Planck, maybe a macro-loading dependency/order issue.
        #_(example "(require '[sablono.core :refer-macros [html]])")

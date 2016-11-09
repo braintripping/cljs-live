@@ -13,6 +13,7 @@
                    :output-to      (str compile-dir "cljs_live.js")
                    :output-dir     (str compile-dir "out")
                    :cache-analysis true
+                   ;:pseudo-names   true
                    :optimizations  :simple
                    :dump-core      false
                    :source-map     (str compile-dir "cljs_live.js.map")

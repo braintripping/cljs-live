@@ -49,31 +49,14 @@
   (for [path (gobj/getValueByKeys js/window #js [".cljs_live_cache" index])]
     (gobj/getValueByKeys js/window #js [".cljs_live_cache" path])))
 
-(defn preloads!
-  "Load bundled analysis caches and macros into compiler state"
-  []
-
-  (doseq [src (by-index "preload_caches")]
-    (let [{:keys [name] :as cache} (transit-json->cljs src)]
-      (cljs/load-analysis-cache! fire-st name cache)))
-
-  (doseq [src (by-index "preload_goog")] (js/eval src))
-
-  (doseq [src (by-index "preload_macros")]
-      (cljs/eval-str fire-st src "macro_load" (assoc (compiler-opts) :macros-ns true) #(when (:error %)
-                                                                                        (.debug js/console (:error %))
-                                                                                        #_(some->> (.-cause (:error %))
-                                                                                                   ((fn [e]
-                                                                                                      (.error js/console e)
-                                                                                                      (.-cause e)))
-                                                                                                   (.error js/console))))))
 (defn eval
   "Eval a single form, keeping track of current ns in fire-env."
   [form]
   (let [result (atom)
-        ns? (and (seq? form) (#{'ns} (first form)))]
+        ns? (and (seq? form) (#{'ns} (first form)))
+        macro-ns? (and (seq? form) (= 'defmacro (first form)))]
     (cljs/eval fire-st form (cond-> (compiler-opts)
-                                    (= 'defmacro (first form))
+                                    macro-ns?
                                     (assoc :macros-ns true)) (partial reset! result))
     (when (and ns? (contains? @result :value))
       (swap! fire-env assoc :ns (second form)))
@@ -89,6 +72,28 @@
                      (prn (.-data e))))]
     (last (for [form forms]
             (eval form)))))
+
+(defn preloads!
+  "Load bundled analysis caches and macros into compiler state"
+  []
+
+  (println "Starting preloads...")
+
+  (println "Analysis Caches:")
+  (time (doseq [src (by-index "preload_caches")]
+          (let [{:keys [name] :as cache} (transit-json->cljs src)]
+            (cljs/load-analysis-cache! fire-st name cache))))
+
+  (println "Google Closure deps...")
+  (time
+    (doseq [src (by-index "preload_goog")] (js/eval src)))
+
+  (println "Macros...")
+  (time
+    (doseq [src (by-index "preload_macros")]
+      (eval-str src)))
+
+  (swap! fire-env assoc :ns 'cljs-live.user))
 
 ;; some macros we can and bundle the js (those which work with Planck)
 ;; some macros we have to include in the compiled-build and only run the analysis cache

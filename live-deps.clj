@@ -9,7 +9,7 @@
                              ;[quil.core :include-macros true] ;; Planck can't load because of browser dependency, need another way to precompile
                              ]
 
-            :require-macros []                              ;; will be put in (ns..)
+            ;:require-macros []                              ;; will be put in (ns..)
             :preload-caches []                              ;; caches to be loaded at init (transit/json)
             :preload-macros [firelisp.rules]                ;; macros to be run at init (clj)
             :output-to      "resources/public/js/compiled/cljs_live_cache.js"}]}
