@@ -8,8 +8,8 @@ Package ClojureScript dependencies for the self-hosted compiler.
 
 **Goals**
 
-Stage 1 - easy to pre-build cljs/js dependencies for use in a self-hosted environment
-Stage 2 - a web service to supply requested cljs/js deps on-demand for browser-based self-hosted ClojureScript
+1. easy to pre-build cljs/js dependencies for use in a self-hosted environment
+2. a web service to supply requested cljs/js deps on-demand for browser-based self-hosted ClojureScript
 
 ### Usage
 
