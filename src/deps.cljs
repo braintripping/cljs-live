@@ -1,3 +1,2 @@
-{:foreign-libs [{:file     "js/marked/marked.min.js"
-                 :provides ["npm.marked"]}
-                ]}
+{:foreign-libs [{:file     "npm/marked/marked.min.js"
+                 :provides ["npm.marked"]}]}

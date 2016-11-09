@@ -14,10 +14,8 @@
          (for [{:keys [render]} @examples]
            (render))]))
 
-(defn main []
+(defn render-root []
   (js/ReactDOM.render (render-examples) (js/document.getElementById "app")))
-
-(declare main)
 
 (defn example [initial-source]
   (let [source (atom initial-source)
@@ -41,9 +39,11 @@
                                             (if value (str value)
                                                       "nil"))))]]))]
     (eval)
-    (add-watch source :src main)
-    (add-watch value :val main)
+    (add-watch source :src render-root)
+    (add-watch value :val render-root)
     {:render render}))
+
+(compiler/preloads!)
 
 (swap! examples conj
 
@@ -53,29 +53,18 @@
        ;; foreign lib from cljsjs
        (example "(require '[cljsjs.bcrypt])\n\n(let [bcrypt js/dcodeIO.bcrypt]\n  (.genSaltSync bcrypt 10))\n")
 
-       ;; personal lib, uses macros
-       (example "(require '[firelisp.rules :refer-macros [at]])")
+       ;; personal lib, uses macros and foreign libs
+       (example "(ns cljs-live.user \n  (:require [firelisp.rules :refer-macros [at]]))\n\n(at \"/\" {:write true})")
 
-       ;; unable to load sablono.compiler in Planck. maybe a macro-loading dependency/order issue.
+       ;; goog deps
+       (example "(ns cljs-live.user \n  (:require [goog.events :as events]))\n\n(events/listenOnce js/window \"mousedown\" #(prn :mouse-down))")
+
+       ;; unable to load sablono.compiler in Planck, maybe a macro-loading dependency/order issue.
        #_(example "(require '[sablono.core :refer-macros [html]])")
 
-       ;; unable to load quil in Planck because of browser dependencies.
+       ;; unable to load Quil in Planck because of Processing.js browser dependencies.
        #_(example "(require '[quil.core :as q])")
-
-       ;; hiccups
-       #_(example "(ns myns
-  (:require-macros [hiccups.core :as hiccups :refer [html]])
-  (:require [hiccups.runtime :as hiccupsrt]))
-
-(hiccups/defhtml my-template []
-  [:div
-    [:a {:href \"https://github.com/weavejester/hiccup\"}
-      \"Hiccup\"]])")
 
        )
 
-(compiler/preloads!)
-
-(main)
-
-(prn :pre-loads)
+(render-root)

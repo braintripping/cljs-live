@@ -3,7 +3,7 @@ target
 checkouts
 *.log
 *.iml
-resources/public/js/compiled/out
+resources/public/js/compiled
 .planck_cache
 node_modules
 checkouts
@@ -15,4 +15,6 @@ target
 firebase
 firebase.json
 closure-experiment
-src/js
+src/npm
+old
+opts.clj

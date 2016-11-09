@@ -5,36 +5,16 @@
   (:require [planck.core :refer [transfer-ns init-empty-state file-seq *command-line-args* slurp spit]]
             [planck.repl :as repl]
             [planck.js-deps :as js-deps]
-            [cognitect.transit :as t]
             [clojure.string :as string]
             [clojure.set :as set]
             [cljs.js :as cljsjs]
             [clojure.string :as string]
-            [cljs.tools.reader :as r]))
+            [cljs.tools.reader :as r]
+            [script.goog-deps :as goog]
+            [script.io :refer [resource ->transit transit->clj realize-lazy-map]]))
 
 (defn log [& args]
   #_(.error js/console args))
-(def out-path "resources/public/js/compiled/out")
-
-(defn resource
-  "Loads the content for a given file. Includes planck cache path."
-  [file]
-  (first (or (js/PLANCK_READ_FILE file)
-             (js/PLANCK_LOAD file)
-             (js/PLANCK_READ_FILE (str (:cache-path @repl/app-env) "/" (munge file)))
-             (js/PLANCK_READ_FILE (str out-path "/" file)))))
-
-(defn realize-lazy-map [m]
-  (reduce (fn [acc k] (assoc acc k (get m k)))
-          {} (keys m)))
-
-(defn ->transit [x]
-  (let [w (t/writer :json)]
-    (t/write w (realize-lazy-map x))))
-
-(defn transit->clj [x]
-  (let [r (t/reader :json)]
-    (t/read r x)))
 
 (defn ns->path
   ([s] (ns->path s ""))
@@ -107,26 +87,12 @@
   (or (resource (ns->path namespace ".clj"))
       (resource (ns->path namespace ".cljc"))))
 
-(defn goog? [namespace]
-  (= "goog" (-> namespace
-                str
-                (string/split ".")
-                first)))
-
-(defn goog-path [namespace]
-  (get (repl/closure-index-mem) namespace))
-
-(defn goog-src [namespace]
-  (if (#{} namespace)
-    ""
-    (when-let [path (goog-path namespace)]
-      (resource (str path ".js")))))
-
-(defn extend-window-obj [name m]
-  (let [export-var (str "window['" name "']")]
-    (str export-var " = " export-var " || {}; "
-         (reduce-kv (fn [s path src]
-                      (str s export-var "['" path "'] = " (js/JSON.stringify (clj->js src)) ";")) "" m))))
+(defn expose-as-window-vars [m]
+  (apply str (for [[name payload] (seq m)]
+               (let [export-var (str "window['" name "']")]
+                 (str export-var " = " export-var " || {}; "
+                      (reduce-kv (fn [s path src]
+                                   (str s export-var "['" path "'] = " (js/JSON.stringify (clj->js src)) ";")) "" payload))))))
 
 (comment
   ;; instrument planck's js-eval
@@ -141,7 +107,9 @@
                {:ns 'planck.repl}
                #(when (:error %) (prn %))))
 
-(defn live-ns-form [ns-name dep-spec]
+(defn live-ns-form
+  "Convert live-deps into ns form"
+  [ns-name dep-spec]
   `(~'ns ~ns-name
      ~@(for [[k exprs] (seq (dissoc dep-spec
                                     :preload-macros
@@ -155,56 +123,54 @@
                             distinct
                             (concat '[cljs.core
                                       cljs.core$macros]))
-        ns-name (symbol (str "cljs-live." (gensym)))
-        goog-deps (atom #{})]
+        ns-name (symbol (str "cljs-live." (gensym)))]
 
     (cljs.js/eval repl/st (live-ns-form ns-name dep-spec) #(when (:error %)
                                                             (println "\n\nfailed" (live-ns-form ns-name dep-spec))
                                                             (println (:error %))))
 
-
-    (prn @js-index)
     (->> [ns-name 'cljs.core]
          (map topo-sorted-deps)
          (map set)
          (apply set/difference)
          (#(disj % ns-name))
+
          (reduce
            (fn [m namespace]
              (let [path (ns->path namespace)]
                (cond (foreign-lib? namespace)
                      (assoc m (munge (str path ".js")) (foreign-lib-src namespace))
-                     (goog? namespace)
-                     (do (swap! goog-deps conj namespace)
-                         (assoc m (munge (str path ".js")) ""))
+                     (goog/goog? namespace)
+                     (let [goog-files (goog/goog-dep-files namespace)]
+                       (reduce (fn [m goog-file]
+                                 (let [path (munge goog-file)]
+                                   (-> m
+                                       (assoc path (resource goog-file))
+                                       (update "preload_goog" (fnil conj []) path)))) m goog-files))
                      :else (let [source (resource (str path ".js"))]
                              (cond-> (assoc m (munge (str path ".cache.json")) (cache-str namespace))
                                      source (assoc (munge (str path ".js")) source)))))) {})
+
          (merge (reduce (fn [m namespace]
-                          (let [src (macro-str namespace)]
-                            (cond-> m
-                                    src (assoc (munge (ns->path namespace "$macros.clj")) src)))) {} preload-macros))
-         (extend-window-obj ".cljs_live_cache")
-         (str (extend-window-obj ".cljs_live_preload_caches"
-                                 (reduce (fn [m namespace]
-                                           (let [cache (cache-str namespace)]
-                                             (cond-> m
-                                                     cache
-                                                     (assoc (munge (ns->path namespace ".cache.json")) cache)))) {} preload-caches)))
-         #_(str (extend-window-obj ".cljs_live_preload_macros"
-                                   (reduce (fn [m namespace]
-                                             (assoc m (munge (ns->path namespace ".cljs")) (macro-str namespace))
-                                             ) {} preload-macros)))
+                          (let [src (macro-str namespace)
+                                path (munge (ns->path namespace "$macros.clj"))]
+                            (if-not src m (-> m
+                                              (assoc path src)
+                                              (update "preload_macros" (fnil conj []) path))))) {} preload-macros))
+         (merge (reduce (fn [m namespace]
+                          (let [cache (cache-str namespace)
+                                path (munge (ns->path namespace ".cache.json"))]
+                            (if-not cache m
+                                          (-> m
+                                              (assoc path cache)
+                                              (update "preload_caches" (fnil conj []) path))))) {} preload-caches))
+
+         (hash-map ".cljs_live_cache")
+         (expose-as-window-vars)
          ((if output-to
             (partial spit output-to)
             println)))
 
-    (when (seq @goog-deps)
-      (.error js/console (str "***\nModule " output-to "
-> The following Closure dependencies must be provided by your build:"
-                              (apply str (for [dep @goog-deps]
-                                           (str "\n  [" dep "]")))
-                              "\n***")))
     (when output-to (println "Emitted file: " output-to))))
 
 (defn get-named-arg [name]
@@ -212,14 +178,19 @@
 
 (let [deps-path (get-named-arg "live-deps")]
   (when-not deps-path (throw (js/Error "Error: Must provide --live-deps arg")))
-  (doseq [dep-spec (r/read-string (slurp "live-deps.clj"))]
-    (package-deps dep-spec)))
+  (let [{:keys [bundles]} (r/read-string (slurp "live-deps.clj"))]
+    (doseq [bundle bundles]
+      (package-deps bundle))))
 
 
 ; todo
 ; - does not handle goog deps
 ; - option to include source maps? (they're big)
 ; - run as standalone script, with command-line args?
+
+; - run using Clojure Compiler with modules? ...compile a *large* number of modules
+;   separately, with a common *base* file. (Look @ old export experiment for that.)
+; - can we get a macro analysis cache from the cljs compiler?
 
 ;; require preload-caches's separately
 

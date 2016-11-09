@@ -13,17 +13,17 @@
                  [cljsjs/react "15.3.1-0"]
                  [cljsjs/react-dom "15.3.1-0"]
 
-
-
                  [org.clojars.mhuebert/firelisp "0.1.0-SNAPSHOT"]
                  [cljsjs/bcrypt "2.3.0-0"]]
 
-  :npm {:dependencies [[marked "0.3.6"]]
-        :package      {:scripts {:postinstall "rm -rf src/js/*;
-                                               cp -r node_modules/marked src/js/marked;"}}}
+  :npm {:dependencies [[marked "0.3.6"]
+                       [google-closure-compiler "20161024.2.0"
+                        google-closure-library "20161024.0.0"]]
+        :package      {:scripts {:postinstall "script/copy_npm_deps.cljs;"}}}
+
   :plugins [[lein-npm "0.6.2"]
             [lein-cljsbuild "1.1.4" :exclusions [org.clojure/clojure]]]
 
-  :clean-targets ^{:protect false} ["resources/public/js/compiled/out"]
+  :clean-targets ^{:protect false} ["resources/public/js/compiled/out" ".planck_cache"]
 
-  :source-paths ["src"])
+  :source-paths ["src" "script"])
