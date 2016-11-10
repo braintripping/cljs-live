@@ -94,16 +94,23 @@
                       (reduce-kv (fn [s path src]
                                    (str s export-var "['" path "'] = " (js/JSON.stringify (clj->js src)) ";")) "" payload))))))
 
-(comment
-  ;; instrument planck's js-eval
+(defn patch-planck-js-eval
+  "Instrument planck's js-eval to ignore exceptions; we are only interested in build artefacts,
+  and some runtime errors occur because Planck is not a browser environment."
+  []
   (cljsjs/eval repl/st
                '(defn js-eval
                   [source source-url]
                   (if source-url
+
                     (let [exception (js/PLANCK_EVAL source source-url)]
                       (when exception
-                        (throw exception)))
-                    (try (js/eval source) (catch js/Error e (prn :js-eval-error e) nil))))
+                        ;; ignore exceptions, we only want build artefacts
+                        #_(throw exception)))
+                    (try (js/eval source)
+                         (catch js/Error e
+                           ;; ignore exceptions, we only want build artefacts
+                           nil))))
                {:ns 'planck.repl}
                #(when (:error %) (prn %))))
 
@@ -114,10 +121,11 @@
      ~@(for [[k exprs] (seq (dissoc dep-spec
                                     :preload-macros
                                     :preload-caches
+                                    :require-caches
                                     :output-to))]
          `(~(keyword k) ~@exprs))))
 
-(defn package-deps [{:keys [preload-caches preload-macros output-to] :as dep-spec}]
+(defn package-deps [{:keys [preload-caches preload-macros require-caches output-to] :as dep-spec}]
   (let [preload-caches (->> preload-caches
                             #_(mapcat topo-sorted-deps)
                             distinct
@@ -160,10 +168,13 @@
          (merge (reduce (fn [m namespace]
                           (let [cache (cache-str namespace)
                                 path (munge (ns->path namespace ".cache.json"))]
-                            (if-not cache m
-                                          (-> m
-                                              (assoc path cache)
-                                              (update "preload_caches" (fnil conj []) path))))) {} preload-caches))
+                            (-> m
+                                (assoc path cache)
+                                (update "preload_caches" (fnil conj []) path)))) {} preload-caches))
+
+         (merge (reduce (fn [m namespace]
+                          (assoc m (munge (ns->path namespace ".cache.json"))
+                                   (cache-str namespace))) {} require-caches))
 
          (hash-map ".cljs_live_cache")
          (expose-as-window-vars)
@@ -176,12 +187,11 @@
 (defn get-named-arg [name]
   (second (first (filter #(= (str "--" name) (first %)) (partition 2 1 *command-line-args*)))))
 
-(let [deps-path (get-named-arg "live-deps")]
-  (when-not deps-path (throw (js/Error "Error: Must provide --live-deps arg")))
-  (let [{:keys [bundles]} (r/read-string (slurp "live-deps.clj"))]
-    (doseq [bundle bundles]
-      (package-deps bundle))))
 
+(patch-planck-js-eval)
+
+(let [deps-path (or (get-named-arg "live-deps") "live-deps.clj")]
+  (package-deps (r/read-string (slurp deps-path))))
 
 ; todo
 ; - does not handle goog deps

@@ -7,7 +7,7 @@
 (enable-console-print!)
 
 (defonce fire-st (cljs/empty-state))
-(defonce fire-env (atom {:ns 'cljs-live.user}))
+(defonce fire-env (atom {:ns 'cljs-live.sablono}))
 
 (defn- transit-json->cljs
   [json]
@@ -84,16 +84,16 @@
           (let [{:keys [name] :as cache} (transit-json->cljs src)]
             (cljs/load-analysis-cache! fire-st name cache))))
 
-  (println "Google Closure deps...")
+  (println "Google Closure Libary deps:")
   (time
     (doseq [src (by-index "preload_goog")] (js/eval src)))
 
-  (println "Macros...")
+  (println "Macros:")
   (time
     (doseq [src (by-index "preload_macros")]
       (eval-str src)))
 
-  (swap! fire-env assoc :ns 'cljs-live.user))
+  (swap! fire-env assoc :ns 'cljs-live.sablono))
 
 ;; some macros we can and bundle the js (those which work with Planck)
 ;; some macros we have to include in the compiled-build and only run the analysis cache
