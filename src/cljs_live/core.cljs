@@ -14,7 +14,8 @@
 
 (defn render-examples []
   (html [:div.mw7.center.lh-copy.mb4
-         [:.f1.mt5.mb2.tc "cljs-live"]
+         [:.f1.mt5.mb2.tc "cljs-live"
+          [:canvas#quil-canvas.v-mid.ml4.br-100]]
          [:p.center.f3.mb3.tc.i "Bundling dependencies for the self-hosted ClojureScript compiler"]
          [:.absolute.top-0.right-0.pa2
           [:a.black.dib.ph3.pv2.bg-near-white.br1 {:href "https://www.github.com/mhuebert/cljs-live"} "Source on GitHub"]]
@@ -31,8 +32,8 @@
 ```
 
 ")
-         [:.f2.mv3.tc "examples"]
-         [:p "*The editors below may be re-evaluated at any time by pressing command-enter."]
+         [:.f2.mt4.mb2.tc "examples"]
+         [:p.tc.mb3 "(hit command-enter in a textarea to re-evaluate)"]
          (for [{:keys [render]} @examples]
            (render))]))
 
@@ -47,8 +48,7 @@
                                          (.debug js/console e)
                                          (str e)))))
         render (fn [] (html [:.cf.w-100.mb4.mt2
-                             [:.bg-light-gray.ph2.mb3.br1
-
+                             [:.bg-light-gray.ph2.mb3.br1.tc
                               (md label)]
 
                              [:textarea.fl.w-50.pre-wrap.h4
@@ -72,12 +72,30 @@
 
 (swap! examples conj
 
-       (example "**bcrypt**, from [cljsjs](http://cljsjs.github.io):"
-                "(require '[cljsjs.bcrypt])\n(let [bcrypt js/dcodeIO.bcrypt]\n  (.genSaltSync bcrypt 10))\n")
+       (example "**quil**, a ClojureScript library from Clojars with macros and a foreign lib that depends on the browser environment:<br/>(renders next to the page title^^)"
+                "(require '[quil.core :as q :include-macros true])
+(def colors (atom [(rand-int 255) (rand-int 255) (rand-int 255) (rand-int 255)]))
+(def ellipse-args (atom [(rand-int 100) (rand-int 100)]))
+(defn rand-or [a b] (if (< (rand) 0.5) a b))
+(defn rand-shift [v]  (mapv (rand-or (partial + 5) (partial - 5)) v))
+(defn draw []
+  (swap! colors rand-shift)
+  (swap! ellipse-args rand-shift)
+  (apply q/fill @colors)
+  (apply q/ellipse (concat '(50 50) @ellipse-args)))
+(q/defsketch my-sketch-definition
+  :host \"quil-canvas\"
+  :draw draw
+  :size [100 100])
+
+")
 
        (example
          "**goog.events**, a Google Closure Library dependency:"
-         "(ns cljs-live.user \n  (:require [goog.events :as events]))\n\n(events/listenOnce js/window \"mousedown\" #(prn :mouse-down))")
+         "(require '[goog.events :as events])\n(events/listenOnce js/window \"mousedown\" #(prn :mouse-down))")
+
+       (example "**bcrypt**, from [cljsjs](http://cljsjs.github.io):"
+                "(require '[cljsjs.bcrypt])\n(let [bcrypt js/dcodeIO.bcrypt]\n  (.genSaltSync bcrypt 10))\n")
 
        (example
          "**npm.marked**, a foreign lib defined in this project's `deps.cljs` file:"
@@ -89,17 +107,6 @@
          "(require '[cljs-live.sablono :refer [html]])
 (html
   [:div
-    [:div {:style {:padding 10 :margin-bottom 10 :color \"black\" :background-color \"pink\"}} \"Let's prepare an empty canvas element for the next example, quil:\"]
-[    :canvas#quil-canvas {:style {:border \"10px solid #eee\"}}]])")
-       (example "**quil**, a ClojureScript library from Clojars with macros and a foreign lib that depends on the browser environment:"
-                "(require '[quil.core :as q :include-macros true])
-(defn draw []
-  (q/fill (q/random 255) (q/random 255) (q/random 255))
-  (q/ellipse 50 50 (q/random 200) (q/random 200)))
-(q/defsketch my-sketch-definition
-  :host \"quil-canvas\"
-  :draw draw
-  :size [100 100])
-"))
+    [:div {:style {:padding 20 :margin-bottom 10 :color \"black\" :background-color \"pink\"}} \"This is a div rendered with sablono (like hiccup).\"]])"))
 
 (render-root)

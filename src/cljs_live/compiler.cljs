@@ -1,13 +1,20 @@
 (ns cljs-live.compiler
   (:require [cljs.js :as cljs]
             [cljs.tools.reader :as r]
+            [cljs.tools.reader.reader-types :as rt]
             [cognitect.transit :as transit]
             [goog.object :as gobj]))
 
+(defn read-string [s]
+  (when (and s (not= "" s))
+    (r/read {} (rt/indexing-push-back-reader s))))
+
+(def debug? false)
 (enable-console-print!)
+(def log (if debug? println list))
 
 (defonce fire-st (cljs/empty-state))
-(defonce fire-env (atom {:ns 'cljs-live.sablono}))
+(defonce fire-env (atom {}))
 
 (defn- transit-json->cljs
   [json]
@@ -57,7 +64,7 @@
         macro-ns? (and (seq? form) (= 'defmacro (first form)))]
     (cljs/eval fire-st form (cond-> (compiler-opts)
                                     macro-ns?
-                                    (assoc :macros-ns true)) (partial reset! result))
+                                    (update :ns #(symbol (str % "$macros")))) (partial reset! result))
     (when (and ns? (contains? @result :value))
       (swap! fire-env assoc :ns (second form)))
     @result))
@@ -65,7 +72,7 @@
 (defn eval-str
   "Eval string by first reading all top-level forms, then eval'ing them one at a time."
   [src]
-  (let [forms (try (r/read-string (str "[" src "]"))
+  (let [forms (try (read-string (str "[" src "]"))
                    (catch js/Error e
                      (.debug js/console "read-str error" e)
                      (prn src)
@@ -77,23 +84,19 @@
   "Load bundled analysis caches and macros into compiler state"
   []
 
-  (println "Starting preloads...")
+  (log "Starting preloads...")
 
-  (println "Analysis Caches:")
-  (time (doseq [src (by-index "preload_caches")]
-          (let [{:keys [name] :as cache} (transit-json->cljs src)]
-            (cljs/load-analysis-cache! fire-st name cache))))
+  (log "Analysis Caches:")
+  (doseq [src (by-index "preload_caches")]
+    (let [{:keys [name] :as cache} (transit-json->cljs src)]
+      (cljs/load-analysis-cache! fire-st name cache)))
 
-  (println "Google Closure Libary deps:")
-  (time
-    (doseq [src (by-index "preload_goog")] (js/eval src)))
+  (log "Google Closure Libary deps:")
+  (doseq [src (by-index "preload_goog")] (js/eval src))
 
-  (println "Macros:")
-  (time
-    (doseq [src (by-index "preload_macros")]
-      (eval-str src)))
-
-  (swap! fire-env assoc :ns 'cljs-live.sablono))
+  (log "Macros:")
+  (doseq [src (by-index "preload_macros")]
+    (eval-str src)))
 
 ;; some macros we can and bundle the js (those which work with Planck)
 ;; some macros we have to include in the compiled-build and only run the analysis cache

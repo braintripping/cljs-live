@@ -8,13 +8,14 @@ resources/public/js/compiled
 node_modules
 checkouts
 resources/public/styles.css
-.firebaserc
 opts.clj
 notes-history.clj
 target
 firebase
 firebase.json
-closure-experiment
+.firebaserc
+pom.xml
 src/npm
 old
 opts.clj
+.lumo_cache

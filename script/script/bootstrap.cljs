@@ -122,7 +122,8 @@
                                     :preload-macros
                                     :preload-caches
                                     :require-caches
-                                    :output-to))]
+                                    :output-to
+                                    :dependencies))]
          `(~(keyword k) ~@exprs))))
 
 (defn package-deps [{:keys [preload-caches preload-macros require-caches output-to] :as dep-spec}]
@@ -194,26 +195,5 @@
   (package-deps (r/read-string (slurp deps-path))))
 
 ; todo
-; - does not handle goog deps
 ; - option to include source maps? (they're big)
-; - run as standalone script, with command-line args?
-
-; - run using Clojure Compiler with modules? ...compile a *large* number of modules
-;   separately, with a common *base* file. (Look @ old export experiment for that.)
-; - can we get a macro analysis cache from the cljs compiler?
-
-;; require preload-caches's separately
-
-
-;; tried individual (ns .. (:require ..)) but it blows away previous defs
-#_(doall
-    (for [[ns-key names] (seq (dissoc dep-spec
-                                      :preload-macros :preload-caches :output-to))
-          expr names]
-      (do (prn [ns-key expr])
-          (cljs.js/eval repl/st `(~'ns ~ns-name
-                                   (~ns-key ~expr))
-                        {:ns ns-name}
-                        #(when (:error %)
-                          (println "\n\nfailed" (str ns-key) " " expr "\n")
-                          (println (:error %)))))))
+; - use boot to install dependencies listed in live-deps
