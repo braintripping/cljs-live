@@ -13,7 +13,7 @@ notes-history.clj
 firebase
 firebase.json
 .firebaserc
-pom.xml
+pom.xml*
 src/npm
 old
 opts.clj
