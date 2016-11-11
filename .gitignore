@@ -5,12 +5,11 @@ checkouts
 *.iml
 resources/public/js/compiled
 .planck_cache
+.lumo_cache
 node_modules
-checkouts
 resources/public/styles.css
 opts.clj
 notes-history.clj
-target
 firebase
 firebase.json
 .firebaserc
@@ -18,4 +17,3 @@ pom.xml
 src/npm
 old
 opts.clj
-.lumo_cache

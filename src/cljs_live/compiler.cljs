@@ -72,13 +72,18 @@
 (defn eval-str
   "Eval string by first reading all top-level forms, then eval'ing them one at a time."
   [src]
-  (let [forms (try (read-string (str "[" src "]"))
+  (let [forms (try (read-string (str "[\n" src "]"))
                    (catch js/Error e
-                     (.debug js/console "read-str error" e)
-                     (prn src)
-                     (prn (.-data e))))]
-    (last (for [form forms]
-            (eval form)))))
+                     (set! (.-data e) (clj->js (update (.-data e) :line dec)))
+                     {:error e}))]
+    (if (contains? forms :error)
+      forms
+      (loop [forms forms]
+        (let [{:keys [error] :as result} (eval (first forms))
+              remaining (rest forms)]
+          (if (or error (empty? remaining))
+            result
+            (recur remaining)))))))
 
 (defn preloads!
   "Load bundled analysis caches and macros into compiler state"
