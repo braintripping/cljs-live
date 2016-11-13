@@ -17,3 +17,4 @@ pom.xml*
 src/npm
 old
 opts.clj
+script/script/out

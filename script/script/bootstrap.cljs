@@ -1,5 +1,5 @@
 #!/bin/sh
-":"                                                         ; exec /usr/bin/env planck -c `lein classpath` -K "$0" "$@"
+":"                                                         ; exec /usr/bin/env planck -c `lein with-profile examples classpath` -K "$0" "$@"
 
 (ns script.bootstrap
   (:require [planck.core :refer [transfer-ns init-empty-state file-seq *command-line-args* slurp spit]]

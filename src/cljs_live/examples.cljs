@@ -1,4 +1,4 @@
-(ns cljs-live.core
+(ns cljs-live.examples
   (:require
     [npm.marked]
     [sablono.core :refer-macros [html]]
