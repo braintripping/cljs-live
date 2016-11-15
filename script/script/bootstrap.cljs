@@ -1,5 +1,5 @@
 #!/bin/sh
-":"                                                         ; exec /usr/bin/env planck -c `lein with-profile examples classpath` -K "$0" "$@"
+":"                                                         ; DIR=$(pwd); CPATH=$(lein classpath); cd $(dirname $(readlink "$0")); exec /usr/bin/env planck -K -c $CPATH bootstrap.cljs "$@" --user_dir $DIR
 
 (ns script.bootstrap
   (:require [planck.core :refer [transfer-ns init-empty-state file-seq *command-line-args* slurp spit]]
@@ -8,20 +8,36 @@
             [clojure.string :as string]
             [clojure.set :as set]
             [cljs.js :as cljsjs]
+            [planck.shell :refer [sh]]
             [clojure.string :as string]
             [cljs.tools.reader :as r]
             [script.goog-deps :as goog]
             [script.io :refer [resource ->transit transit->clj realize-lazy-map]]))
 
+(defn get-named-arg [name]
+  (second (first (filter #(= (str "--" name) (first %)) (partition 2 1 *command-line-args*)))))
+
+(def user-dir (get-named-arg "user_dir"))
+
+(defn user-path [s]
+  (cond->> s
+           (not= (first s) \/)
+           (str user-dir "/")))
 (defn log [& args]
   #_(.error js/console args))
+
+(defn prn-ret [x]
+  (println x)
+  x)
 
 (defn ns->path
   ([s] (ns->path s ""))
   ([s ext]
-   (-> (str s)
+   (-> (cond-> s
+               (vector? s) first)
+       (str)
        (string/replace #"\.macros$" "$macros")
-       munge
+       (munge)
        (string/replace "." "/")
        (str ext))))
 
@@ -35,7 +51,7 @@
   (or (some-> (get-in @repl/st [:cljs.analyzer/namespaces namespace])
               realize-lazy-map
               (->transit))
-      (let [path #(str "resources/public/js/compiled/out/" (ns->path namespace (str % ".cache.json")))]
+      (let [path #(user-path (str "resources/public/js/compiled/out/" (ns->path namespace (str % ".cache.json"))))]
         (or (resource (path ".cljc"))
             (resource (path ".cljs"))))))
 
@@ -117,16 +133,16 @@
 (defn live-ns-form
   "Convert live-deps into ns form"
   [ns-name dep-spec]
-  `(~'ns ~ns-name
-     ~@(for [[k exprs] (seq (dissoc dep-spec
-                                    :preload-macros
-                                    :preload-caches
-                                    :require-caches
-                                    :output-to
-                                    :dependencies))]
-         `(~(keyword k) ~@exprs))))
+  (let [dep-spec (update dep-spec :require-macros concat (:preload-macros dep-spec))]
+    `(~'ns ~ns-name
+       ~@(for [[k exprs] (seq (select-keys dep-spec
+                                           [:exclude
+                                            :require
+                                            :require-macros
+                                            :import]))]
+           `(~(keyword k) ~@exprs)))))
 
-(defn package-deps [{:keys [preload-caches preload-macros require-caches output-to] :as dep-spec}]
+(defn package-deps [{:keys [preload-caches preload-macros require-caches excludes output-to] :as dep-spec}]
   (let [preload-caches (->> preload-caches
                             #_(mapcat topo-sorted-deps)
                             distinct
@@ -142,7 +158,11 @@
          (map topo-sorted-deps)
          (map set)
          (apply set/difference)
+
+         (#(set/difference % (set require-caches) (set excludes)))
          (#(disj % ns-name))
+
+         ((fn [x] (println (interpose "\n" x)) x))
 
          (reduce
            (fn [m namespace]
@@ -163,35 +183,33 @@
          (merge (reduce (fn [m namespace]
                           (let [src (macro-str namespace)
                                 path (munge (ns->path namespace "$macros.clj"))]
+                            (prn :get-macro path :src (some-> src (subs 0 40)))
                             (if-not src m (-> m
                                               (assoc path src)
                                               (update "preload_macros" (fnil conj []) path))))) {} preload-macros))
+
          (merge (reduce (fn [m namespace]
                           (let [cache (cache-str namespace)
                                 path (munge (ns->path namespace ".cache.json"))]
                             (-> m
                                 (assoc path cache)
                                 (update "preload_caches" (fnil conj []) path)))) {} preload-caches))
-
          (merge (reduce (fn [m namespace]
                           (assoc m (munge (ns->path namespace ".cache.json"))
                                    (cache-str namespace))) {} require-caches))
 
+         ;((fn [m] (println (interpose "\n" (sort (keys m)))) m))
          (hash-map ".cljs_live_cache")
          (expose-as-window-vars)
          ((if output-to
-            (partial spit output-to)
+            (partial spit (user-path output-to))
             println)))
 
-    (when output-to (println "Emitted file: " output-to))))
-
-(defn get-named-arg [name]
-  (second (first (filter #(= (str "--" name) (first %)) (partition 2 1 *command-line-args*)))))
-
+    (when output-to (println "Emitted file: " (user-path output-to)))))
 
 (patch-planck-js-eval)
 
-(let [deps-path (or (get-named-arg "live-deps") "live-deps.clj")]
+(let [deps-path (user-path (or (get-named-arg "deps") "live-deps.clj"))]
   (package-deps (r/read-string (slurp deps-path))))
 
 ; todo

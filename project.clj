@@ -1,4 +1,4 @@
-(defproject org.clojars.mhuebert/cljs-live "0.1.2"
+(defproject org.clojars.mhuebert/cljs-live "0.1.3-SNAPSHOT"
   :description "Tools for bunding dependencies for self-hosted ClojureScript"
   :url "http://example.com/FIXME"
   :license {:name "Eclipse Public License"

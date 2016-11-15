@@ -8,7 +8,7 @@
             [clojure.string :as string]
             [script.io :refer [resource]]))
 
-(def dep-cache (-> (:out (sh "node" "script/read_closure_library_deps.js"))
+(def dep-cache (-> (:out (sh "node" "../read_closure_library_deps.js"))
                    js/JSON.parse
                    js->clj))
 

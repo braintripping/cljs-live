@@ -15,6 +15,7 @@
 
 (defonce fire-st (cljs/empty-state))
 (defonce fire-env (atom {}))
+(defonce loaded (atom #{"cljs/core" "cljs/core$macros"}))
 
 (defn- transit-json->cljs
   [json]
@@ -26,22 +27,31 @@
   [k]
   (gobj/getValueByKeys js/window (clj->js (conj [".cljs_live_cache"] k))))
 
+(def blank-result {:source "" :lang :js})
+
 (defn load-fn
   "Load requirements from bundled deps"
   [{:keys [path macros]} cb]
   (let [path (cond-> path
-                     macros (str "$macros"))
-        [source lang] (or (some-> (get-cache (str (munge path) ".js"))
-                                  (list :js))
-                          (some-> (get-cache (str (munge path) ".clj"))
-                                  (list :clj)))
-        cache (get-cache (str (munge path) ".cache.json"))]
-
-    (cb (if source
-          (cond-> {:source source
-                   :lang   lang}
-                  cache (assoc :cache (transit-json->cljs cache)))
-          {:source "" :lang :js}))))
+                     macros (str "$macros"))]
+    (cb (if (@loaded path)
+          blank-result
+          (let [[source lang] (or (some-> (get-cache (str (munge path) ".js"))
+                                          (list :js))
+                                  (some-> (get-cache (str (munge path) ".clj"))
+                                          (list :clj)))
+                cache (get-cache (str (munge path) ".cache.json"))]
+            (swap! loaded conj path)
+            (println {:path   path
+                      :macros macros
+                      :lang   lang
+                      :source (some-> source (subs 0 50))
+                      :cache  (some-> cache (subs 0 50))})
+            (if source
+              (cond-> {:source source
+                       :lang   lang}
+                      cache (assoc :cache (transit-json->cljs cache)))
+              blank-result))))))
 
 (defn compiler-opts
   []
