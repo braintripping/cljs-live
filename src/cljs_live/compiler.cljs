@@ -42,7 +42,7 @@
                                           (list :clj)))
                 cache (get-cache (str (munge path) ".cache.json"))]
             (swap! loaded conj path)
-            (println {:path   path
+            #_(println {:path   path
                       :macros macros
                       :lang   lang
                       :source (some-> source (subs 0 50))

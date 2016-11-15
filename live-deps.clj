@@ -5,6 +5,7 @@
                   [goog.events]
                   [quil.core :include-macros true]]
  :require-caches [cljs-live.sablono]
+ :cljsbuild-out  "resources/public/js/compiled/out"
  :output-to      "resources/public/js/compiled/cljs_live_cache.js"}
 
 ;; other options:
