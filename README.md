@@ -33,7 +33,8 @@ The `live-deps` file contains a map of dependencies. Entries in the map are eval
  - `:require-caches` - namespaces for which an analysis cache (not compiled source) will be bundled. This option is for namespaces that are already included in your compiled build.
  - `:preload-caches` - same as above, but caches are loaded immediately (this is done by default for `cljs.core` and `cljs.core$macros`)
  - `:preload-macros` - raw Clojure source code will be included for the specified macro namespaces, and preloaded
- - `:output-to` is the destination path for the emitted javascript.
+ - `:output-to` - destination path for the emitted javascript.
+ - `:cljsbuild-out` - the `out-dir` of the cljsbuild profile for your project.
 
 ### Things that work
 
@@ -43,7 +44,4 @@ The `live-deps` file contains a map of dependencies. Entries in the map are eval
 
 ### Limitations
 
-Libraries that cannot be loaded by Planck are not packaged correctly (eg. Quil and Sablono). Two known causes:
-
-1. Macros that are not compatible with self-hosted ClojureScript (eg. Sablono)
-2. Libraries that require a browser environment to load (eg. Quil, which loads Processing.js)
+Projects which include macros that are incompatible with self-hosted ClojureScript cause problems.
