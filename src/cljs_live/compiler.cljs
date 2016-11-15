@@ -43,10 +43,10 @@
                 cache (get-cache (str (munge path) ".cache.json"))]
             (swap! loaded conj path)
             #_(println {:path   path
-                      :macros macros
-                      :lang   lang
-                      :source (some-> source (subs 0 50))
-                      :cache  (some-> cache (subs 0 50))})
+                        :macros macros
+                        :lang   lang
+                        :source (some-> source (subs 0 50))
+                        :cache  (some-> cache (subs 0 50))})
             (if source
               (cond-> {:source source
                        :lang   lang}

@@ -71,20 +71,25 @@
   (cond-> s
           (not (string/ends-with? s \/)) (str \/)))
 
-(defn cache-str [out-dir namespace]
-  (or (some-> (get-in @repl/st [:cljs.analyzer/namespaces namespace])
-              realize-lazy-map
-              (->transit))
-      (let [path #(user-path (str (->dir out-dir) (ns->path namespace (str % ".cache.json"))))]
-        (or (resource (path ".cljc"))
-            (resource (path ".cljs"))))))
-
 (defn cache-map [namespace]
   (or (some-> (get-in @repl/st [:cljs.analyzer/namespaces namespace])
               realize-lazy-map)
       (some-> (or (resource (ns->path namespace ".cljs.cache.json"))
                   (resource (ns->path namespace ".cljc.cache.json")))
               (transit->clj))))
+
+(defn cache-str [out-dir namespace]
+  (or (some-> (get-in @repl/st [:cljs.analyzer/namespaces namespace])
+              realize-lazy-map
+              (->transit))
+      (or (let [path #(user-path (str (->dir out-dir) (ns->path namespace (str % ".cache.json"))))]
+            (or (resource (path ".cljc"))
+                (resource (path ".cljs"))))
+          (let [path #(user-path (str (->dir out-dir) (ns->path namespace (str % ".cache.edn"))))]
+            (some-> (or (try (resource (path ".cljs")) (catch js/Error e nil))
+                        (try (resource (path ".cljc")) (catch js/Error e nil)))
+                    r/read-string
+                    ->transit)))))
 
 (assert (= (mapv ns->path ['my-app.core 'my-app.core$macros 'my-app.some-lib])
            ["my_app/core" "my_app/core$macros" "my_app/some_lib"]))
