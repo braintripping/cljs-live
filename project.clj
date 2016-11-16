@@ -1,4 +1,4 @@
-(defproject org.clojars.mhuebert/cljs-live "0.1.4"
+(defproject org.clojars.mhuebert/cljs-live "0.1.5-SNAPSHOT"
   :description "Tools for bunding dependencies for self-hosted ClojureScript"
   :url "http://example.com/FIXME"
   :license {:name "Eclipse Public License"
@@ -15,10 +15,12 @@
                                        [cljsjs/react "15.3.1-0"]
                                        [cljsjs/react-dom "15.3.1-0"]]}}
 
+  :cljsbuild {:builds []}
+
   :npm {:dependencies [[stylus "0.54.5"]
                        [marked "0.3.6"]
-                       [google-closure-compiler "20161024.2.0"
-                        google-closure-library "20161024.0.0"]]
+                       [google-closure-compiler "20161024.2.0"]
+                       [google-closure-library "20161024.0.0"]]
         :package      {:scripts {:postinstall "script/script/copy_deps.cljs marked;"}}}
 
   :plugins [[lein-npm "0.6.2"]

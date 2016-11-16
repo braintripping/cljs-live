@@ -13,8 +13,8 @@
 (enable-console-print!)
 (def log (if debug? println list))
 
-(defonce fire-st (cljs/empty-state))
-(defonce fire-env (atom {}))
+(defonce c-state (cljs/empty-state))
+(defonce c-env (atom {}))
 (defonce loaded (atom #{"cljs/core" "cljs/core$macros"}))
 
 (defn- transit-json->cljs
@@ -55,61 +55,67 @@
   []
   {:load          load-fn
    :eval          cljs/js-eval
-   :ns            (:ns @fire-env)
+   :ns            (:ns @c-env)
    :context       :expr
    :source-map    true
    :def-emits-var true})
 
-(defn by-index [index]
+(defn caches-by-index [index]
   (for [path (gobj/getValueByKeys js/window #js [".cljs_live_cache" index])]
-    (gobj/getValueByKeys js/window #js [".cljs_live_cache" path])))
+    [path (gobj/getValueByKeys js/window #js [".cljs_live_cache" path])]))
 
 (defn eval
   "Eval a single form, keeping track of current ns in fire-env."
-  [form]
+  [form cstate]
   (let [result (atom)
         ns? (and (seq? form) (#{'ns} (first form)))
         macro-ns? (and (seq? form) (= 'defmacro (first form)))]
-    (cljs/eval fire-st form (cond-> (compiler-opts)
-                                    macro-ns?
-                                    (update :ns #(symbol (str % "$macros")))) (partial reset! result))
+    (cljs/eval cstate form (cond-> (compiler-opts)
+                                   macro-ns?
+                                   (update :ns #(symbol (str % "$macros")))) (partial reset! result))
     (when (and ns? (contains? @result :value))
-      (swap! fire-env assoc :ns (second form)))
+      (swap! c-env assoc :ns (second form)))
     @result))
 
 (defn eval-str
   "Eval string by first reading all top-level forms, then eval'ing them one at a time."
-  [src]
-  (let [forms (try (read-string (str "[\n" src "]"))
-                   (catch js/Error e
-                     (set! (.-data e) (clj->js (update (.-data e) :line dec)))
-                     {:error e}))]
-    (if (contains? forms :error)
-      forms
-      (loop [forms forms]
-        (let [{:keys [error] :as result} (eval (first forms))
-              remaining (rest forms)]
-          (if (or error (empty? remaining))
-            result
-            (recur remaining)))))))
+  ([src] (eval-str src c-state))
+  ([src cstate]
+   (let [forms (try (read-string (str "[\n" src "]"))
+                    (catch js/Error e
+                      (set! (.-data e) (clj->js (update (.-data e) :line dec)))
+                      {:error e}))]
+     (if (contains? forms :error)
+       forms
+       (loop [forms forms]
+         (let [{:keys [error] :as result} (eval (first forms) cstate)
+               remaining (rest forms)]
+           (if (or error (empty? remaining))
+             result
+             (recur remaining))))))))
 
 (defn preloads!
   "Load bundled analysis caches and macros into compiler state"
-  []
+  [c-state]
+  (let [c-state (or c-state c-state)]
 
-  (log "Starting preloads...")
+    (log "Starting preloads...")
 
-  (log "Analysis Caches:")
-  (doseq [src (by-index "preload_caches")]
-    (let [{:keys [name] :as cache} (transit-json->cljs src)]
-      (cljs/load-analysis-cache! fire-st name cache)))
+    (log "Analysis Cache Preloads:")
+    (doseq [[path src] (caches-by-index "preload_caches")]
+      (swap! loaded conj path)
+      (let [{:keys [name] :as cache} (transit-json->cljs src)]
+        (cljs/load-analysis-cache! c-state name cache)))
 
-  (log "Google Closure Libary deps:")
-  (doseq [src (by-index "preload_goog")] (js/eval src))
+    (log "Google Closure Libary Preloads:")
+    (doseq [[path src] (caches-by-index "preload_goog")]
+      (swap! loaded conj path)
+      (js/eval src))
 
-  (log "Macros:")
-  (doseq [src (by-index "preload_macros")]
-    (eval-str src)))
+    (log "Macro Preloads:")
+    (doseq [[path src] (caches-by-index "preload_macros")]
+      (swap! loaded conj path)
+      (eval-str src c-state))))
 
 ;; some macros we can and bundle the js (those which work with Planck)
 ;; some macros we have to include in the compiled-build and only run the analysis cache

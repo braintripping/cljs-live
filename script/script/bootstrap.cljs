@@ -71,28 +71,29 @@
   (cond-> s
           (not (string/ends-with? s \/)) (str \/)))
 
-(defn cache-map [namespace]
-  (or (some-> (get-in @repl/st [:cljs.analyzer/namespaces namespace])
-              realize-lazy-map)
-      (some-> (or (resource (ns->path namespace ".cljs.cache.json"))
-                  (resource (ns->path namespace ".cljc.cache.json")))
-              (transit->clj))))
-
 (defn cache-str [out-dir namespace]
   (or (some-> (get-in @repl/st [:cljs.analyzer/namespaces namespace])
               realize-lazy-map
               (->transit))
-      (or (let [path #(user-path (str (->dir out-dir) (ns->path namespace (str % ".cache.json"))))]
-            (or (resource (path ".cljc"))
-                (resource (path ".cljs"))))
-          (let [path #(user-path (str (->dir out-dir) (ns->path namespace (str % ".cache.edn"))))]
-            (some-> (or (try (resource (path ".cljs")) (catch js/Error e nil))
-                        (try (resource (path ".cljc")) (catch js/Error e nil)))
-                    r/read-string
-                    ->transit)))))
+      (resource (ns->path namespace ".cljs.cache.json"))
+      (resource (ns->path namespace ".cljc.cache.json"))
+      (and out-dir
+           (first (doall (for [ext [".cljc" ".cljs"]
+                               [format f] [["edn" (comp ->transit r/read-string)]
+                                           ["json" identity]]
+                               :let [path (user-path (str (->dir out-dir) (ns->path namespace (str ext ".cache." format))))
+                                     resource (some-> (resource path) f)]
+                               :when resource]
+                           resource))))))
 
-(assert (= (mapv ns->path ['my-app.core 'my-app.core$macros 'my-app.some-lib])
-           ["my_app/core" "my_app/core$macros" "my_app/some_lib"]))
+(defn cache-map [namespace]
+  (or (some-> (get-in @repl/st [:cljs.analyzer/namespaces namespace])
+              realize-lazy-map)
+      (some-> (cache-str nil namespace)
+              transit->clj)))
+(comment
+  (assert (= (mapv ns->path ['my-app.core 'my-app.core$macros 'my-app.some-lib])
+             ["my_app/core" "my_app/core$macros" "my_app/some_lib"])))
 
 (defn get-deps
   [ana-ns]
