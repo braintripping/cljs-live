@@ -45,13 +45,11 @@
             #_(println {:path   path
                         :macros macros
                         :lang   lang
-                        :source (some-> source (subs 0 50))
-                        :cache  (some-> cache (subs 0 50))})
-            (if source
-              (cond-> {:source source
-                       :lang   lang}
-                      cache (assoc :cache (transit-json->cljs cache)))
-              blank-result))))))
+                        :source (some-> source (subs 0 50))})
+            (cond-> blank-result
+                    source (merge {:source source
+                                   :lang   lang})
+                    cache (merge {:cache (transit-json->cljs cache)})))))))
 
 (defn compiler-opts
   []
