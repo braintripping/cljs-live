@@ -1,47 +1,47 @@
 # cljs-live
 
-ClojureScript dependency packaging for the self-hosted compiler.
+Because ClojureScript in the browser is fun, but packaging dependencies isn't.
 
-**Status:** Alpha, still figuring things out
+**Status:** Alpha
 
-**Requirements:** [Planck](planck-repl.org) (I'm using master)
+**Requirements:**
 
-**Goals**
+- [Planck REPL](planck-repl.org)
+- Clojure
 
-1. Pre-build cljs/js dependencies for use in a self-hosted environment
-2. (Eventually) supply requested deps on-demand for browser-based self-hosted ClojureScript?
+**Goal**
+
+Given a list of namespaces you'd like to use in the browser (`entry`), and the main namespace of the compiled ClojureScript app (`provided`), **cljs-live** should calculate and package the minimal required set of compiled source files and analysis caches, and help load them into the compiler state.
 
 ### Usage
 
-Clone this repo and:
+Create a `live-deps.clj` file in your project. It should contain a single map, with four required keys:
 
-1. Run `lein deps` to get all the dependencies listed in `project.clj` on the `lein classpath`.
-2. `lein npm install` (see npm deps in project.clj)
-3. Edit `live-deps.clj` to include the deps you want to use in a self-hosted environment. If you are adding new deps make sure to add them to `project.clj` and repeat #1.
-4. Run `script/script/bootstrap.cljs`, and include the output file in your webpage. Have a look at `src/cljs_live/compiler.cljs` to see what client-side usage looks like - pay special attention to `load-fn` and `preloads!`.
+```
+{:entry          [my-app.dev-env] ;; a namespace which contains *only* the names you want available in the self-host environment. Transitive deps will be included.
+ :provided       [my-app.core] ;; the `main` namespace of your **compiled** app (to prevent including redundant files)
+ :output-to      "resources/public/js/cljs_live_cache.js" ;; where to put the output file, which you'll include in `index.html`
+ :cljsbuild-out  "resources/public/js/compiled/out"} ;; the `out` directory of an existing cljsbuild - we read some cached files from here
+```
 
-To get an example running in this repo, the following script will perform all the steps listed above and also produce an example usage build that you can view at `resources/public/index.html`:
+If you aren't happy with the calculated dependencies, you can manually require or exclude via the following keys:
 
-`./build.sh --watch`
+```
+{:require-source []
+ :require-macros []
+ :require-caches []
+ :require-goog []
+ :require-foreign-libs []
 
-(Remove `--watch` to avoid recompiling on source edits)
+ :exclude-source []
+ :exclude-macros []
+ :exclude-caches []
+ :exclude-goog []
+ :exclude-foreign-libs []}
+```
 
-### live-deps file format
+The `cljs-live/compiler` namespace contains a `load-fn` that knows how to read from the resulting bundle.
 
-The `live-deps` file contains a map of dependencies. Entries in the map are evaluated in the body of an `ns` expression, except for:
+### Notes
 
- - `:require-caches` - namespaces for which an analysis cache (not compiled source) will be bundled. This option is for namespaces that are already included in your compiled build.
- - `:preload-caches` - same as above, but caches are loaded immediately (this is done by default for `cljs.core` and `cljs.core$macros`)
- - `:preload-macros` - raw Clojure source code will be included for the specified macro namespaces, and preloaded
- - `:output-to` - destination path for the emitted javascript.
- - `:cljsbuild-out` - the `out-dir` of the cljsbuild profile for your project.
-
-### Things that work
-
-- **foreign libs** - javascript files from [cljsjs](http://cljsjs.github.io/) packages & other ClojureScript libraries (specified in `deps.cljs`) are loaded.
-- **macros**, so long as they are in ClojureScript and are self-hosted-compiler friendly. (further reading by Mike Fikes: [ClojureScript Macro Tower and Loop](http://blog.fikesfarm.com/posts/2015-12-18-clojurescript-macro-tower-and-loop.html), [Collapsing Macro Tower](http://blog.fikesfarm.com/posts/2016-03-04-collapsing-macro-tower.html))
-- Google Clojure Library dependencies, like `goog.events`. (I haven't tested this extensively yet)
-
-### Limitations
-
-Projects which include macros that are incompatible with self-hosted ClojureScript cause problems.
+- Not all macros work in the self-host environment. Mike Fikes, creator of [Planck,](planck-repl.org) is an expert on the topic, so check out his blog! Eg: [ClojureScript Macro Tower and Loop](http://blog.fikesfarm.com/posts/2015-12-18-clojurescript-macro-tower-and-loop.html), [Collapsing Macro Tower](http://blog.fikesfarm.com/posts/2016-03-04-collapsing-macro-tower.html)

@@ -68,7 +68,7 @@
     (add-watch value :val render-root)
     {:render render}))
 
-(compiler/preloads!)
+(compiler/preloads! compiler/c-state)
 
 (swap! examples conj
 

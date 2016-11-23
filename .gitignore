@@ -8,6 +8,7 @@ resources/public/js/compiled
 .lumo_cache
 node_modules
 resources/public/styles.css
+.lein-repl-history
 opts.clj
 notes-history.clj
 firebase
