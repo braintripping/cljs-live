@@ -27,7 +27,7 @@ Given a list of namespaces you'd like to use in the browser (`entry`), and the m
  :cljsbuild-out  "resources/public/js/compiled/out"} ;; the `out` directory of an existing cljsbuild - we read some cached files from here
 ```
 
-Then run `bundle.sh --deps live-deps.clj`
+Then run `bundle.sh live-deps.clj`
 
 ## Modifying the bundle
 
