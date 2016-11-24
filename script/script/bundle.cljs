@@ -1,18 +1,6 @@
-#!/bin/sh
-":"                                                         ;: \
-; USER_DIR=$(pwd) \
-; USER_CLASSPATH=$(lein classpath) \
-; cd $(dirname $(python -c "import os,sys; print os.path.realpath(sys.argv[1])" "$0")) \
-; exec /usr/bin/env planck -K -c $USER_CLASSPATH bootstrap.cljs "$@" --user_dir $USER_DIR
-
-; notes on the above lines:
-; - [0] shell gibberish to get this script to execute, don't touch
-; - [1, 2] USER_DIR and USER_CLASSPATH capture script context
-; - [3] move to directory of invocation; use Python to get an absolute path, following symlinks (http://stackoverflow.com/a/3373298/3421050)
-; - [4] execute Planck with user classpath, passing in command line args.
-
-(ns script.bootstrap
-  (:require [planck.core :refer [transfer-ns init-empty-state file-seq *command-line-args* slurp spit]]
+#!/usr/bin/env planck
+(ns script.bundle
+  (:require [planck.core :refer [transfer-ns *in* line-seq init-empty-state file-seq *command-line-args* slurp spit]]
             [planck.repl :as repl]
             [clojure.string :as string]
             [cljs.js :as cljsjs]
@@ -20,7 +8,13 @@
             [clojure.string :as string]
             [cljs.tools.reader :as r]
             [cljs.pprint :refer [pprint]]
+            [cognitect.transit :as t]
             [script.io :refer [resource ->transit transit->clj realize-lazy-map]]))
+
+(defn get-named-arg [name]
+  (second (first (filter #(= (str "--" name) (first %)) (partition 2 1 *command-line-args*)))))
+
+(def user-dir (get-named-arg "user_dir"))
 
 (defn patch-planck-js-eval
   "Instrument planck's js-eval to ignore exceptions; we are only interested in build artefacts,
@@ -32,10 +26,6 @@
                     (js/PLANCK_EVAL source source-url)
                     (try (js/eval source) (catch js/Error e nil)))) {:ns 'planck.repl} #()))
 
-(defn get-named-arg [name]
-  (second (first (filter #(= (str "--" name) (first %)) (partition 2 1 *command-line-args*)))))
-
-(def user-dir (get-named-arg "user_dir"))
 
 (defn user-path [s]
   (cond->> s
@@ -85,7 +75,10 @@
                                :let [path (user-path (str (->dir out-dir) (ns->path namespace (str ext ".cache." format))))
                                      resource (some-> (resource path) f)]
                                :when resource]
-                           resource))))))
+                           (do (println :out-dir-cache namespace path)
+                               resource))))
+
+           )))
 
 (comment
   (assert (= (mapv ns->path ['my-app.core 'my-app.core$macros 'my-app.some-lib])
@@ -99,24 +92,15 @@
          (reduce-kv (fn [s path src]
                       (str s export-var "['" path "'] = " (js/JSON.stringify (clj->js src)) ";")) "" payload))))
 
-(defn get-cljs-deps
-  "Calls a Clojure script which uses cljs.closure & friends to reliably determine transitive dependencies of given namespaces"
-  [entry provided]
-  (with-sh-dir user-dir
-               (->> (concat ["java" "-cp" (string/trim-newline (:out (sh "lein" "classpath"))) "clojure.main" (str script-dir "cljs_closure_deps.clj")]
-                            (cons "--require" (map (comp str ns->name) entry))
-                            (cons "--provided" (map (comp str ns->name) provided)))
-                    (apply sh)
-                    :out
-                    r/read-string)))
-
+(def build-log (atom {}))
 (defn planck-require
   "Loads namespace into Planck REPL so that we can consume the compiled js and analysis caches."
   [n macro?]
   (cljs.js/eval repl/st `(~'ns ~'cljs-live.precompile
                            (~(if macro? :require-macros :require) ~n))
                 #(when (:error %)
-                  (println "\n\nFailed requiring precompiled dep, " n ":" (:error %)))))
+                  (swap! build-log update :planck-require-fail conj [n macro? (:error %)])
+                  nil)))
 
 (patch-planck-js-eval)
 
@@ -126,9 +110,10 @@
                          require-macros
                          require-caches
                          require-goog
-                         require-foreign-deps]}]
+                         require-foreign-deps] :as deps}]
 
   (doseq [n require-source] (planck-require n false))
+  (doseq [n require-caches] (planck-require n false))
   (doseq [n require-macros] (planck-require n true))
 
   (let [sources (reduce (fn [m namespace]
@@ -147,7 +132,7 @@
         macros (reduce (fn [m namespace]
                          (if-let [src (resource (ns->path namespace "$macros.js"))]
                            (assoc m (munge (ns->path namespace "$macros.js")) src)
-                           (do (prn :macro-not-found namespace) m))) {} require-macros)
+                           (do (swap! build-log update :macro-find-fail conj namespace) m))) {} require-macros)
         goog (reduce (fn [m file]
                        (let [path (munge file)]
                          (-> (assoc m path (resource file))
@@ -156,14 +141,14 @@
 
 (patch-planck-js-eval)
 
-
-(let [{:keys [entry
-              provided
-              cljsbuild-out
-              output-to] :as dep-spec} (->> (user-path (or (get-named-arg "deps") "live-deps.clj"))
-                                            slurp
-                                            (r/read-string))
-      deps (->> (get-cljs-deps entry provided)
+(let [deps-path (user-path (or (get-named-arg "deps") "live-deps.clj"))
+      {:keys [cljsbuild-out
+              output-to] :as dep-spec} (-> (slurp deps-path)
+                                           (r/read-string))
+      deps (->> (-> (line-seq *in*)
+                    (string/join)
+                    (r/read-string)
+                    :value)
                 ;; merge user overrides
                 (merge-with into (select-keys dep-spec [:require-source
                                                         :require-macros
@@ -179,8 +164,13 @@
                                                                     (assoc m (-> (name k)
                                                                                  (string/replace "exclude" "require")
                                                                                  keyword) v)) {}))))
-      js-string (->> deps (gather-deps cljsbuild-out)
-                     (expose-browser-global ".cljs_live_cache"))]
+      gathered-deps (gather-deps cljsbuild-out deps )
+      js-string (expose-browser-global ".cljs_live_cache" gathered-deps)]
   (spit (user-path output-to) js-string)
+  (println "Planck could not load the following\n    " (map first (:planck-require-fail @build-log)))
+  (println "The following macro namespaces could not be loaded:\n    " (:macro-find-fail @build-log))
+
   (println "Bundled:")
-  (pprint deps))
+  (pprint (reduce-kv (fn [m k v] (assoc m k (if (coll? v) (set v) v))) {} deps))
+  (println "keys:" (keys deps))
+  (println "Output-to: " output-to))

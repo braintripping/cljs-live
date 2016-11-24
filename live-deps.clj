@@ -1,4 +1,5 @@
-{:require        [[npm.marked]
+{:dependencies []
+ :require        [[npm.marked]
                   [cljsjs.bcrypt]
                   [goog.events]
                   [quil.core :include-macros true]]

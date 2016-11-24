@@ -7,7 +7,8 @@
 
   :dependencies [[org.clojure/clojure "1.8.0"]
                  [org.clojure/clojurescript "1.9.293"]
-                 [com.cognitect/transit-cljs "0.8.239"]]
+                 [com.cognitect/transit-cljs "0.8.239"]
+                 [alembic "0.3.2"]]
 
   :profiles {:examples {:dependencies [[quil "2.5.0"]
                                        [cljsjs/bcrypt "2.3.0-0"]

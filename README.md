@@ -8,6 +8,7 @@ Because ClojureScript in the browser is fun, but packaging dependencies isn't.
 
 - [Planck REPL](planck-repl.org)
 - Clojure
+- Alembic (in `~/.lein/profiles.clj`)
 
 **Goal**
 
@@ -15,14 +16,20 @@ Given a list of namespaces you'd like to use in the browser (`entry`), and the m
 
 ### Usage
 
-Create a `live-deps.clj` file in your project. It should contain a single map, with four required keys:
+1. Put a symlink to bundle.sh on your path.
+2. In your project directory, create a `live-deps.clj` file. It should contain a single map, which accepts the following keys:
 
 ```
-{:entry          [my-app.dev-env] ;; a namespace which contains *only* the names you want available in the self-host environment. Transitive deps will be included.
- :provided       [my-app.core] ;; the `main` namespace of your **compiled** app (to prevent including redundant files)
+{:entry          [app.repl-user] ;; a namespace which contains *only* the names you want available in the self-host environment. Transitive deps will be included.
+ :provided       [app.core] ;; the `main` namespace of your **compiled** app (to prevent including redundant files)
+ :dependencies   [quil "2.5.0"] ;; add dependencies that are not in your `lein classpath` here
  :output-to      "resources/public/js/cljs_live_cache.js" ;; where to put the output file, which you'll include in `index.html`
  :cljsbuild-out  "resources/public/js/compiled/out"} ;; the `out` directory of an existing cljsbuild - we read some cached files from here
 ```
+
+Then run `bundle.sh --deps live-deps.clj`
+
+## Modifying the bundle
 
 If you aren't happy with the calculated dependencies, you can manually require or exclude via the following keys:
 
