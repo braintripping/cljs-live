@@ -3,7 +3,10 @@
             [cljs.tools.reader :as r]
             [cljs.tools.reader.reader-types :as rt]
             [cognitect.transit :as transit]
-            [goog.object :as gobj]))
+            [goog.object :as gobj]
+            [clojure.string :as string]))
+
+
 
 (defn read-string [s]
   (when (and s (not= "" s))
@@ -15,7 +18,13 @@
 
 (defonce c-state (cljs/empty-state))
 (defonce c-env (atom {}))
-(defonce loaded (atom #{"cljs/core" "cljs/core$macros"}))
+(defonce loaded (atom #{}))
+
+;; monkey-patch goog.isProvided_
+(def is-provided (aget js/goog "isProvided_"))
+(aset js/goog "isProvided_" (fn [name] (if (get-in @c-state (list :cljs.analyzer/namespaces (symbol name)))
+                                         false
+                                         (is-provided name))))
 
 (defn- transit-json->cljs
   [json]
@@ -36,11 +45,11 @@
                      macros (str "$macros"))]
     (cb (if (@loaded path)
           blank-result
-          (let [[source lang] (or (some-> (get-cache (str (munge path) ".js"))
+          (let [[source lang] (or (some-> (get-cache (str path ".js"))
                                           (list :js))
-                                  (some-> (get-cache (str (munge path) ".clj"))
+                                  (some-> (get-cache (str path ".clj"))
                                           (list :clj)))
-                cache (get-cache (str (munge path) ".cache.json"))]
+                cache (get-cache (str path ".cache.json"))]
             (swap! loaded conj path)
             #_(println {:path   path
                         :macros macros
@@ -97,25 +106,29 @@
 (defn preloads!
   "Load bundled analysis caches and macros into compiler state"
   [c-state]
-  (let [c-state (or c-state c-state)]
+  (log "Starting preloads...")
 
-    (log "Starting preloads...")
+  (log "Analysis Cache Preloads:")
+  (doseq [[path src] (caches-by-index "preload_caches")]
+    (swap! loaded conj path)
+    (let [{:keys [name] :as cache} (transit-json->cljs src)]
+      (cljs/load-analysis-cache! c-state name cache)))
 
-    (log "Analysis Cache Preloads:")
-    (doseq [[path src] (caches-by-index "preload_caches")]
-      (swap! loaded conj path)
-      (let [{:keys [name] :as cache} (transit-json->cljs src)]
-        (cljs/load-analysis-cache! c-state name cache)))
-
+  (let [eval-f #(eval '(require 'goog.events) c-state)]
+    (println (eval-f))
     (log "Google Closure Libary Preloads:")
     (doseq [[path src] (caches-by-index "preload_goog")]
       (swap! loaded conj path)
-      (js/eval src))
+      (js/eval src)
+      (println "added" path (eval-f))))
 
-    (log "Macro Preloads:")
-    (doseq [[path src] (caches-by-index "preload_macros")]
-      (swap! loaded conj path)
-      (eval-str src c-state))))
+  (log "Analysis Cache Preloads:")
+  (doseq [path ["cljs/core.cache.json" "cljs/core$macros.cache.json"]]
+    (swap! loaded conj path)
+    (let [{:keys [name] :as cache} (transit-json->cljs (gobj/getValueByKeys js/window #js [".cljs_live_cache" path]))]
+      (cljs/load-analysis-cache! c-state name cache)))
+
+  )
 
 ;; some macros we can and bundle the js (those which work with Planck)
 ;; some macros we have to include in the compiled-build and only run the analysis cache

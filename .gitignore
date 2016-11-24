@@ -18,4 +18,5 @@ pom.xml*
 src/npm
 old
 opts.clj
+.cljs_live_planck_cache
 script/script/out

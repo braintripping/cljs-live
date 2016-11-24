@@ -22,7 +22,7 @@ Given a list of namespaces you'd like to use in the browser (`entry`), and the m
 ```
 {:entry          [app.repl-user] ;; a namespace which contains *only* the names you want available in the self-host environment. Transitive deps will be included.
  :provided       [app.core] ;; the `main` namespace of your **compiled** app (to prevent including redundant files)
- :dependencies   [quil "2.5.0"] ;; add dependencies that are not in your `lein classpath` here
+ :dependencies   [[quil "2.5.0"]] ;; add dependencies that are not in your `lein classpath` here
  :output-to      "resources/public/js/cljs_live_cache.js" ;; where to put the output file, which you'll include in `index.html`
  :cljsbuild-out  "resources/public/js/compiled/out"} ;; the `out` directory of an existing cljsbuild - we read some cached files from here
 ```

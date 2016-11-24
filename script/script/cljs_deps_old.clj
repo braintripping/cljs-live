@@ -1,6 +1,6 @@
 #!/usr/bin/env lein exec -p
 
-(ns script.cljs-deps
+(ns script.cljs-deps-old
   (:require [cljs.closure :as cljsc]
             [cljs.env :as env]
             [clojure.string :as string]
@@ -66,23 +66,39 @@
 
 (require 'alembic.still)
 
-(try (let [{:keys [provided dependencies] :as deps} (->> (cmd-arg "--deps")
-                                                         first
-                                                         slurp
-                                                         r/read-string)
+(try (let [{:keys [entry provided dependencies] :as deps} (->> (cmd-arg "--deps")
+                                                               first
+                                                               slurp
+                                                               r/read-string)
            _ (when dependencies (with-out-str (alembic.still/distill (seq dependencies))))
+           entry (set entry)
            provided (set (apply cljs-deps provided))
-           ;_ (println :goog-cljs (->> (filter goog-dep? provided) (map :file)))
-           provided (->> provided
-                         (mapcat deps/-requires)
-                         set
-                         (#(disj % nil))
-                         (map symbol))]
+           transitive-requires (->> (apply cljs-deps entry)
+                                    (filter #(not (contains? #{'cljs.env} (:ns %)))))
+           direct-requires (->> transitive-requires
+                                (filter #(contains? entry (:ns %)))
+                                set)
+           {:keys [bundle-source
+                   bundle-cache
+                   bundle-goog
+                   bundle-foreign]} (group-by #(let [provided? (contains? provided %)
+                                                     direct? (contains? direct-requires %)]
+                                                (cond (core-dep? %) :bundle-cache
+                                                      (goog-dep? %) (when-not provided? :bundle-goog)
+                                                      (:foreign %) (when-not provided? :bundle-foreign)
+                                                      (not provided?) :bundle-source
+                                                      direct? :bundle-cache
+                                                      :else :bundle-cache)) transitive-requires)]
 
        (swap! result assoc :added-classpath (->> (map :jar (alembic.still/dependency-jars))
                                                  (string/join ":")))
 
-       (swap! result assoc :value provided))
+       (swap! result assoc :value {:require-source       (map :ns bundle-source)
+                                   :require-macros       (mapcat macro-deps transitive-requires)
+                                   :require-caches       (keep identity (map :ns bundle-cache))
+                                   :require-foreign-deps (map #(do {:file     (str (:file %))
+                                                                    :provides (:provides %)}) bundle-foreign)
+                                   :require-goog         (map (comp str :file) bundle-goog)}))
      (catch Exception e
        (swap! result assoc :error e)))
 
