@@ -5,7 +5,7 @@
                                       [sablono "0.7.5"]
                                       [cljsjs/react "15.3.1-0"]
                                       [cljsjs/react-dom "15.3.1-0"]]
-                  :name          'cljs-live-cache
+                  :name          cljs-live-cache
                   :require       [npm.marked
                                   cljsjs.bcrypt
                                   goog.events

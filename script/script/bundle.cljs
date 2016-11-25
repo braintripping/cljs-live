@@ -16,11 +16,11 @@
   #_(.error js/console args))
 
 (defn get-named-arg [name]
-  (second (first (filter #(= (str "--" name) (first %)) (partition 2 1 *command-line-args*)))))
+  (second (first (filter #(= name (first %)) (partition 2 1 *command-line-args*)))))
 
 (def extra-paths (atom []))
 
-(def user-dir (get-named-arg "user_dir"))
+(def user-dir (get-named-arg "--user-dir"))
 
 (defn resource
   "Loads the content for a given file. Includes planck cache path."
@@ -207,7 +207,7 @@
   (-> (string/join "/" strs)
       (string/replace #"/+" "/")))
 
-(let [{:keys [output-dir cljsbuild-out bundles]} (-> (get-named-arg "live-deps")
+(let [{:keys [output-dir cljsbuild-out bundles]} (-> (get-named-arg "--deps")
                                                      (slurp)
                                                      (r/read-string))
       {provided-results :value
@@ -222,6 +222,7 @@
             deps (bundle-deps bundle-spec)
             js-string (expose-browser-global ".cljs_live_cache" deps)
             out-path (str (path-join user-dir output-dir (-> (:name dep-spec) name munge)) ".js")]
+        (println :try out-path)
         (spit out-path js-string)
         (println "Bundle " (:name dep-spec) ":\n")
         (pprint (reduce-kv (fn [m k v] (assoc m k (set v))) {} (dissoc bundle-spec :provided-goog)))

@@ -23,13 +23,15 @@
 
 **live-deps.clj**
 ```
-{:require        [npm.marked
-                  cljsjs.bcrypt
-                  goog.events
-                  [quil.core :include-macros true]]
- :require-cache  [cljs-live.sablono]
- :cljsbuild-out  \"resources/public/js/compiled/out\"
- :output-to      \"resources/public/js/compiled/cljs_live_cache.js\"}
+{:cljsbuild-out \"resources/public/js/compiled/out\"
+ :output-dir    \"resources/public/js/compiled\"
+ :bundles       [{:name          'cljs-live-cache
+                  :require       [npm.marked
+                                  cljsjs.bcrypt
+                                  goog.events
+                                  [quil.core :include-macros true]]
+                  :require-cache [cljs-live.sablono]
+                  :provided      [cljs-live.examples]}]}
 ```
 
 ")

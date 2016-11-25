@@ -17,6 +17,6 @@ re=".*__BEGIN_CLASSPATH__(.*)__END_CLASSPATH__(.*)"
 
 cd $SCRIPT_DIR;
 
-echo $provided | planck -k $CACHE_DIR -c $USER_CLASSPATH':'$cp bundle.cljs --user_dir $USER_DIR --live-deps $USER_DIR'/'$1;
+echo $provided | planck -k $CACHE_DIR -c $USER_CLASSPATH':'$cp bundle.cljs --user-dir $USER_DIR --deps $USER_DIR'/'$1;
 
 [[ -e opts.clj ]] && rm opts.clj;

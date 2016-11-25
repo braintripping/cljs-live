@@ -22,17 +22,16 @@ Given a map containing `ns` requirement expressions (`:require, :require-macros,
 - In your project directory, create a `live-deps.clj` file. See the [example file](https://github.com/mhuebert/cljs-live/blob/master/live-deps.clj) for options.
 
 ```clj
-{:output-dir      "resources/public/js/cljs_live_cache.js"
-                 ;; ^^where to save the output file
- :cljsbuild-out  "resources/public/js/compiled/out"}
-                 ;; ^^the `output-dir` of your cljsbuild options
- :bundles        [{:require        [app.repl-user :include-macros true] ;; entry namespace(s) to include in package
+{:output-dir     "resources/public/js/cljs_live_cache.js" ;; where to save the output file
+ :cljsbuild-out  "resources/public/js/compiled/out"} ;; the `output-dir` of your cljsbuild options
+ :bundles        [{;; same behaviour as `ns` forms:
+                   :require        [app.repl-user :include-macros true]
                    :require-macros [] ;; same as above
                    :import         [] ;; same as above
 
+                   ;; other keys:
                    :provided       [app.core] ;; entry namespace(s) to the _compiled_ app
-
-                   :dependencies   [[quil "2.5.0"]] ;; optional, deps that are not in `lein classpath`
+                   :dependencies   [[quil "2.5.0"]] ;; deps to add to classpath
 }]
 ```
 
@@ -44,7 +43,7 @@ Note the `:cljsbuild-out` key. This should correspond to the `:output-dir` in yo
 
 If you aren't happy with the calculated dependencies, you can manually require or exclude specific namespaces from a bundle by using the following keys:
 
-```
+```clj
 {:require-source      []
  :require-cache       []
  :require-goog        []
