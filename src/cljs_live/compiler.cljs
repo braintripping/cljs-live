@@ -2,11 +2,9 @@
   (:require [cljs.js :as cljs]
             [cljs.tools.reader :as r]
             [cljs.tools.reader.reader-types :as rt]
-            [cognitect.transit :as transit]
-            [goog.object :as gobj]
-            [clojure.string :as string]))
+            [cognitect.transit :as transit]))
 
-
+(def cljs-cache (js->clj (aget js/window ".cljs_live_cache")))
 
 (defn read-string [s]
   (when (and s (not= "" s))
@@ -20,21 +18,11 @@
 (defonce c-env (atom {}))
 (defonce loaded (atom #{}))
 
-;; monkey-patch goog.isProvided_
-(def is-provided (aget js/goog "isProvided_"))
-(aset js/goog "isProvided_" (fn [name] (if (get-in @c-state (list :cljs.analyzer/namespaces (symbol name)))
-                                         false
-                                         (is-provided name))))
 
 (defn- transit-json->cljs
   [json]
   (let [rdr (transit/reader :json)]
     (transit/read rdr json)))
-
-(defn get-cache
-  "Read from preload cache"
-  [k]
-  (gobj/getValueByKeys js/window (clj->js (conj [".cljs_live_cache"] k))))
 
 (def blank-result {:source "" :lang :js})
 
@@ -46,17 +34,17 @@
                      macros (str "$macros"))]
     (cb (if (@loaded path)
           blank-result
-          (let [[source lang] (or (some-> (get-cache (str path ".js"))
+          (let [[source lang] (or (some-> (get cljs-cache (str path ".js"))
                                           (list :js))
-                                  (some-> (get-cache (str path ".clj"))
+                                  (some-> (get cljs-cache (str path ".clj"))
                                           (list :clj)))
-                cache (get-cache (str path ".cache.json"))]
+                cache (get cljs-cache (str path ".cache.json"))]
             (swap! loaded conj path)
             #_(println {:path   path
-                      :macros macros
-                      :lang   lang
-                      :source (some-> source (subs 0 40))
-                      :cache (some-> cache (subs 0 40))})
+                        :macros macros
+                        :lang   lang
+                        :source (some-> source (subs 0 40))
+                        :cache  (some-> cache (subs 0 40))})
             (cond-> blank-result
                     source (merge {:source source
                                    :lang   lang})
@@ -70,10 +58,6 @@
    :context       :expr
    :source-map    true
    :def-emits-var true})
-
-(defn caches-by-index [index]
-  (for [path (gobj/getValueByKeys js/window #js [".cljs_live_cache" index])]
-    [path (gobj/getValueByKeys js/window #js [".cljs_live_cache" path])]))
 
 (defn eval
   "Eval a single form, keeping track of current ns in fire-env."
@@ -105,25 +89,33 @@
              result
              (recur remaining))))))))
 
-(defn load-cache [s c-state]
-  (let [{:keys [name] :as cache} (transit-json->cljs s)]
+(defn load-cache
+  "Load a transit-encoded analysis cache into compiler state"
+  [cache-str c-state]
+  (let [{:keys [name] :as cache} (transit-json->cljs cache-str)]
     (cljs/load-analysis-cache! c-state name cache)))
 
 (defn preloads!
+
   "Load bundled analysis caches and macros into compiler state"
   [c-state]
   (log "Starting preloads...")
 
+  ;; monkey-patch goog.isProvided_ to return false if we have a matching namespace in the compiler
+  ;; https://github.com/clojure/clojurescript/wiki/Custom-REPLs#eliminating-loaded-libs-tracking
+  (let [is-provided (aget js/goog "isProvided_")]
+    (aset js/goog "isProvided_" (fn [name] (if (get-in @c-state (list :cljs.analyzer/namespaces (symbol name)))
+                                             false
+                                             (is-provided name)))))
+
+
   (log "Google Closure Libary Preloads:")
-  (doseq [[path src] (caches-by-index "preload_goog")]
-    (swap! loaded conj path)
-    (js/eval src))
+  (doall (for [path (get cljs-cache "preload_goog")
+               :let [src (get cljs-cache path)]]
+           (do (swap! loaded conj path)
+               (js/eval src))))
 
   (log "Analysis Cache Preloads:")
   (doseq [path ["cljs/core.cache.json" "cljs/core$macros.cache.json"]]
     (swap! loaded conj path)
-    (load-cache (gobj/getValueByKeys js/window #js [".cljs_live_cache" path]) c-state)))
-
-;; some macros we can and bundle the js (those which work with Planck)
-;; some macros we have to include in the compiled-build and only run the analysis cache
-;; some macros we have to include the source and run in the client
+    (load-cache (get cljs-cache path) c-state)))

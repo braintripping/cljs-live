@@ -8,9 +8,11 @@ CACHE_DIR=$USER_DIR'/.cljs_live_planck_cache'
 mkdir -p $CACHE_DIR;
 [[ -e src/deps.cljs ]] && cp src/deps.cljs $SCRIPT_DIR'/'opts.clj;
 
+#java -cp $USER_CLASSPATH clojure.main $SCRIPT_DIR'/cljs_deps.clj' --deps $USER_DIR'/'$1
+
 PROVIDED=$(java -cp $USER_CLASSPATH clojure.main $SCRIPT_DIR'/cljs_deps.clj' --deps $USER_DIR'/'$1)
 
-re="(.*)__END_CLASSPATH__(.*)"
+re=".*__BEGIN_CLASSPATH__(.*)__END_CLASSPATH__(.*)"
 [[ $PROVIDED =~ $re ]] && cp="${BASH_REMATCH[1]}" && provided="${BASH_REMATCH[2]}"
 
 cd $SCRIPT_DIR;
