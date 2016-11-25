@@ -18,8 +18,8 @@ Given a map containing `ns` requirement expressions (`:require, :require-macros,
 
 ### Usage
 
-1. Put a symlink to bundle.sh on your path.
-2. In your project directory, create a `live-deps.clj` file. It should contain a single map, which accepts the following keys:
+- Put a symlink to bundle.sh on your path.
+- In your project directory, create a `live-deps.clj` file. It should contain a single map, which accepts the following keys:
 
 ```
 {:require        [app.repl-user :include-macros true] ;; namespace(s) to be packaged for self-host use (transitive deps will be included)
@@ -31,7 +31,9 @@ Given a map containing `ns` requirement expressions (`:require, :require-macros,
  :cljsbuild-out  "resources/public/js/compiled/out"} ;; the `out` directory of an existing cljsbuild - we read some cached files from here
 ```
 
-Then run `bundle.sh live-deps.clj`
+Note the `:cljsbuild-out` key. This should correspond to the `:output-dir` in your cljsbuild options. Make sure that these options also include `:cache-analysis true` (see the [example cljsbuild options](https://github.com/mhuebert/cljs-live/blob/master/script/build_example.clj)). Make sure that you have run a build and left this `out` folder intact before running this script.
+
+- Run `bundle.sh live-deps.clj`. This should write a bundle of javascript source files and analysis caches to the `:output-to` path, which you can include on a webpage and use in tandem with the `load-fn` in `cljs-live.compiler`.
 
 ## Modifying the bundle
 
