@@ -23,9 +23,6 @@
                :when (= n arg-name)]
            v)))
 
-(defn core-dep? [ijs]
-  (#{'cljs.core 'cljs.core$macros} (:ns ijs)))
-
 (require 'alembic.still)
 
 (defn install-deps [dependencies]
@@ -38,18 +35,19 @@
        (mapcat deps/-requires)
        set
        (#(disj % nil))
-       (map symbol)))
+       (map symbol)
+       set))
 
-(let [provided (try (let [{:keys [provided dependencies]} (->> (cmd-arg "--deps")
-                                                               slurp
-                                                               r/read-string)]
-                      (when dependencies (install-deps dependencies))
-                      {:value (transitive-deps provided)})
+(let [provides (try {:value (doall (for [{:keys [provided dependencies]} (:bundles (->> (cmd-arg "--deps")
+                                                                                        slurp
+                                                                                        r/read-string))]
+                                     (do (when dependencies (install-deps dependencies))
+                                         (transitive-deps provided))))}
                     (catch Exception e {:error e}))]
   (println (str "__BEGIN_CLASSPATH__"
                 (->> (map :jar (alembic.still/dependency-jars))
                      (string/join ":"))
                 "__END_CLASSPATH__"))
-  (prn provided))
+  (prn provides))
 
 
