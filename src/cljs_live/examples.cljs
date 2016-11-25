@@ -25,7 +25,7 @@
 ```
 {:cljsbuild-out \"resources/public/js/compiled/out\"
  :output-dir    \"resources/public/js/compiled\"
- :bundles       [{:name          'cljs-live-cache
+ :bundles       [{:name          cljs-live-cache
                   :require       [npm.marked
                                   cljsjs.bcrypt
                                   goog.events
