@@ -19,21 +19,21 @@ Given a map containing `ns` requirement expressions (`:require, :require-macros,
 ### Usage
 
 - Put a symlink to bundle.sh on your path.
-- In your project directory, create a `live-deps.clj` file. It should contain a single map, which accepts the following keys:
+- In your project directory, create a `live-deps.clj` file. See the [example file](https://github.com/mhuebert/cljs-live/blob/master/live-deps.clj) for options.
 
 ```clj
-{:require        [app.repl-user :include-macros true] ;; entry namespace(s) to include in package
- :require-macros [] ;; same as above
- :import         [] ;; same as above
-
- :provided       [app.core] ;; entry namespace(s) to the _compiled_ app
-
- :dependencies   [[quil "2.5.0"]] ;; optional, deps that are not in `lein classpath`
-
- :output-to      "resources/public/js/cljs_live_cache.js"
+{:output-dir      "resources/public/js/cljs_live_cache.js"
                  ;; ^^where to save the output file
  :cljsbuild-out  "resources/public/js/compiled/out"}
                  ;; ^^the `output-dir` of your cljsbuild options
+ :bundles        [{:require        [app.repl-user :include-macros true] ;; entry namespace(s) to include in package
+                   :require-macros [] ;; same as above
+                   :import         [] ;; same as above
+
+                   :provided       [app.core] ;; entry namespace(s) to the _compiled_ app
+
+                   :dependencies   [[quil "2.5.0"]] ;; optional, deps that are not in `lein classpath`
+}]
 ```
 
 Note the `:cljsbuild-out` key. This should correspond to the `:output-dir` in your cljsbuild options. Make sure that these options also include `:cache-analysis true` (see the [example cljsbuild options](https://github.com/mhuebert/cljs-live/blob/master/script/build_example.clj)). Make sure that you have run a build and left this `out` folder intact before running this script.
@@ -42,7 +42,7 @@ Note the `:cljsbuild-out` key. This should correspond to the `:output-dir` in yo
 
 ## Modifying the bundle
 
-If you aren't happy with the calculated dependencies, you can manually require or exclude specific namespaces via the following keys:
+If you aren't happy with the calculated dependencies, you can manually require or exclude specific namespaces from a bundle by using the following keys:
 
 ```
 {:require-source      []
