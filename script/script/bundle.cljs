@@ -54,7 +54,7 @@
   [namespace]
   (or (resource (ns->path namespace ".cljs.cache.json"))
       (resource (ns->path namespace ".cljc.cache.json"))
-      (first (doall (for [ext [".cljc" ".cljs"]
+      (first (doall (for [ext [".cljs" ".cljc" "" ".clj"]   ;; planck caches don't have file extensions
                           [format f] [["edn" (comp ->transit r/read-string)]
                                       ["json" identity]]
                           :let [path (ns->path namespace (str ext ".cache." format))

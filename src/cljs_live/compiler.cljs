@@ -28,7 +28,7 @@
 
 (defn load-fn
   "Load requirements from bundled deps"
-  [{:keys [path macros]} cb]
+  [{:keys [path macros name] :as s} cb]
 
   (let [path (cond-> path
                      macros (str "$macros"))]
@@ -40,11 +40,6 @@
                                           (list :clj)))
                 cache (get cljs-cache (str path ".cache.json"))]
             (swap! loaded conj path)
-            #_(println {:path   path
-                        :macros macros
-                        :lang   lang
-                        :source (some-> source (subs 0 40))
-                        :cache  (some-> cache (subs 0 40))})
             (cond-> blank-result
                     source (merge {:source source
                                    :lang   lang})
