@@ -41,6 +41,7 @@
 (defn load-fn
   "Load requirements from bundled deps"
   [{:keys [path macros]} cb]
+
   (let [path (cond-> path
                      macros (str "$macros"))]
     (cb (if (@loaded path)
@@ -52,9 +53,10 @@
                 cache (get-cache (str path ".cache.json"))]
             (swap! loaded conj path)
             #_(println {:path   path
-                        :macros macros
-                        :lang   lang
-                        :source (some-> source (subs 0 50))})
+                      :macros macros
+                      :lang   lang
+                      :source (some-> source (subs 0 40))
+                      :cache (some-> cache (subs 0 40))})
             (cond-> blank-result
                     source (merge {:source source
                                    :lang   lang})
@@ -103,32 +105,24 @@
              result
              (recur remaining))))))))
 
+(defn load-cache [s c-state]
+  (let [{:keys [name] :as cache} (transit-json->cljs s)]
+    (cljs/load-analysis-cache! c-state name cache)))
+
 (defn preloads!
   "Load bundled analysis caches and macros into compiler state"
   [c-state]
   (log "Starting preloads...")
 
-  (log "Analysis Cache Preloads:")
-  (doseq [[path src] (caches-by-index "preload_caches")]
+  (log "Google Closure Libary Preloads:")
+  (doseq [[path src] (caches-by-index "preload_goog")]
     (swap! loaded conj path)
-    (let [{:keys [name] :as cache} (transit-json->cljs src)]
-      (cljs/load-analysis-cache! c-state name cache)))
-
-  (let [eval-f #(eval '(require 'goog.events) c-state)]
-    (println (eval-f))
-    (log "Google Closure Libary Preloads:")
-    (doseq [[path src] (caches-by-index "preload_goog")]
-      (swap! loaded conj path)
-      (js/eval src)
-      (println "added" path (eval-f))))
+    (js/eval src))
 
   (log "Analysis Cache Preloads:")
   (doseq [path ["cljs/core.cache.json" "cljs/core$macros.cache.json"]]
     (swap! loaded conj path)
-    (let [{:keys [name] :as cache} (transit-json->cljs (gobj/getValueByKeys js/window #js [".cljs_live_cache" path]))]
-      (cljs/load-analysis-cache! c-state name cache)))
-
-  )
+    (load-cache (gobj/getValueByKeys js/window #js [".cljs_live_cache" path]) c-state)))
 
 ;; some macros we can and bundle the js (those which work with Planck)
 ;; some macros we have to include in the compiled-build and only run the analysis cache

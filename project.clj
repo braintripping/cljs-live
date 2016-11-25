@@ -1,4 +1,4 @@
-(defproject org.clojars.mhuebert/cljs-live "0.1.6-SNAPSHOT"
+(defproject org.clojars.mhuebert/cljs-live "0.1.6"
   :description "Tools for bunding dependencies for self-hosted ClojureScript"
   :url "http://example.com/FIXME"
   :license {:name "Eclipse Public License"
@@ -8,18 +8,13 @@
   :dependencies [[org.clojure/clojure "1.8.0"]
                  [org.clojure/clojurescript "1.9.293"]
                  [com.cognitect/transit-cljs "0.8.239"]
-                 [alembic "0.3.2"]
-
-
-                 [quil "2.5.0"]
-                 [cljsjs/bcrypt "2.3.0-0"]
-                 [sablono "0.7.5"]
-                 [cljsjs/react "15.3.1-0"]
-                 [cljsjs/react-dom "15.3.1-0"]]
+                 [alembic "0.3.2"]]
 
   :cljsbuild {:builds []}
 
-  :profiles {:dev {:dependencies [[sablono "0.7.5"]
+  :profiles {:dev {:dependencies [[quil "2.5.0"]
+                                  [cljsjs/bcrypt "2.3.0-0"]
+                                  [sablono "0.7.5"]
                                   [cljsjs/react "15.3.1-0"]
                                   [cljsjs/react-dom "15.3.1-0"]]}}
 

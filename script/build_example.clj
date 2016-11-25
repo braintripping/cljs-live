@@ -14,8 +14,8 @@
                    :output-dir     (str compile-dir "out")
                    :cache-analysis true
                    ;:pseudo-names   true
-                   :optimizations  :none
-                   :asset-path     "js/compiled/out"
+                   :optimizations  :simple
+                   ;:asset-path     "js/compiled/out"
                    :dump-core      false
                    ;:source-map     (str compile-dir "cljs_live.js.map")
                    :parallel-build true})))
