@@ -138,7 +138,6 @@
         total (count paths)]
     (doseq [path paths]
       (fetch-bundle path (fn [bundle]
-                           (println :loaded (keys bundle))
                            (swap! bundles merge bundle)
                            (swap! loaded inc)
                            (when (= total @loaded)
