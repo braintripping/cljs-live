@@ -2,9 +2,17 @@
   (:require [cljs.js :as cljs]
             [cljs.tools.reader :as r]
             [cljs.tools.reader.reader-types :as rt]
-            [cognitect.transit :as transit]))
+            [cognitect.transit :as transit]
+            [goog.net.XhrIo :as xhr]))
 
-(def cljs-cache (js->clj (aget js/window ".cljs_live_cache")))
+(defonce is-provided (aget js/goog "isProvided_"))
+
+(defn get-json [path cb]
+  (xhr/send path
+            (fn [e]
+              (cb (.. e -target getResponseJson)))))
+
+(def cljs-cache (atom {}))
 
 (defn read-string [s]
   (when (and s (not= "" s))
@@ -16,7 +24,6 @@
 
 (defonce c-state (cljs/empty-state))
 (defonce c-env (atom {}))
-(defonce loaded (atom #{}))
 
 
 (defn- transit-json->cljs
@@ -31,19 +38,27 @@
   [{:keys [path macros name] :as s} cb]
 
   (let [path (cond-> path
-                     macros (str "$macros"))]
-    (cb (if (@loaded path)
+                     macros (str "$macros"))
+        name (if-not macros name
+                            (symbol (str name "$macros")))
+        provided? (or (is-provided (munge (str name))) (boolean (aget js/goog "dependencies_" "nameToPath" (munge (str name)))))]
+    (cb (if (*loaded-libs* (str name))
           blank-result
-          (let [[source lang] (or (some-> (get cljs-cache (str path ".js"))
-                                          (list :js))
-                                  (some-> (get cljs-cache (str path ".clj"))
-                                          (list :clj)))
-                cache (get cljs-cache (str path ".cache.json"))]
-            (swap! loaded conj path)
-            (cond-> blank-result
-                    source (merge {:source source
-                                   :lang   lang})
-                    cache (merge {:cache (transit-json->cljs cache)})))))))
+          (let [[source lang] (when-not provided?
+                                (or (some-> (get @cljs-cache (str path ".js"))
+                                            (list :js))
+                                    (some-> (get @cljs-cache (str path ".clj"))
+                                            (list :clj))))
+                cache (get @cljs-cache (str path ".cache.json"))
+                result (cond-> blank-result
+                               source (merge {:source source
+                                              :lang   lang})
+                               cache (merge {:cache (transit-json->cljs cache)}))]
+            #_(when (or cache source)
+              (set! *loaded-libs* (conj *loaded-libs* (str name)))
+              (println [(if (boolean source) "source" "      ")
+                        (if (boolean cache) "cache" "     ")] name))
+            result)))))
 
 (defn compiler-opts
   []
@@ -84,33 +99,48 @@
              result
              (recur remaining))))))))
 
-(defn load-cache
-  "Load a transit-encoded analysis cache into compiler state"
-  [cache-str c-state]
-  (let [{:keys [name] :as cache} (transit-json->cljs cache-str)]
-    (cljs/load-analysis-cache! c-state name cache)))
+(defonce _loaded-libs (set! *loaded-libs* (or *loaded-libs* #{})))
 
-(defn preloads!
+(defonce goog-require (aget js/goog "require"))
 
-  "Load bundled analysis caches and macros into compiler state"
-  [c-state]
-  (log "Starting preloads...")
+(set! (.-require js/goog)
+      (fn [name reload]
+        (when (or (not (contains? *loaded-libs* name)) reload)
+          (let [path (aget (.. js/goog -dependencies_ -nameToPath) name)
+                goog? (.test #"^\.\./" path)
+                provided? (is-provided name)]
+            (cond provided? nil
+                  goog? (do (set! *loaded-libs* (conj *loaded-libs* name))
+                            (js/eval (get @cljs-cache (str "goog/" path))))
+                  :else (do (set! *loaded-libs* (conj *loaded-libs* name))
+                            (goog-require name reload)))))))
 
-  ;; monkey-patch goog.isProvided_ to return false if we have a matching namespace in the compiler
-  ;; https://github.com/clojure/clojurescript/wiki/Custom-REPLs#eliminating-loaded-libs-tracking
-  (let [is-provided (aget js/goog "isProvided_")]
-    (aset js/goog "isProvided_" (fn [name] (if (get-in @c-state (list :cljs.analyzer/namespaces (symbol name)))
-                                             false
-                                             (is-provided name)))))
+(defn fetch-bundle [path cb]
+  (get-json path (fn [bundle]
+                   (let [bundle (js->clj bundle)]
+                     (swap! cljs-cache merge bundle)
+                     (cb bundle)))))
 
+(defn load-cache! [c-state cache]
+  (let [{:keys [name] :as cache} (transit-json->cljs cache)]
+    (when (and (not (*loaded-libs* (str name))) cache)
+      (set! *loaded-libs* (conj *loaded-libs* (str name)))
+      (cljs/load-analysis-cache! c-state name cache))))
 
-  (log "Google Closure Libary Preloads:")
-  (doall (for [path (get cljs-cache "preload_goog")
-               :let [src (get cljs-cache path)]]
-           (do (swap! loaded conj path)
-               (js/eval src))))
-
-  (log "Analysis Cache Preloads:")
+(defn load-core-caches [c-state]
   (doseq [path ["cljs/core.cache.json" "cljs/core$macros.cache.json"]]
-    (swap! loaded conj path)
-    (load-cache (get cljs-cache path) c-state)))
+    (load-cache! c-state (get @cljs-cache path))))
+
+(defn load-bundles!
+  [c-state paths cb]
+  (let [bundles (atom {})
+        loaded (atom 0)
+        total (count paths)]
+    (doseq [path paths]
+      (fetch-bundle path (fn [bundle]
+                           (println :loaded (keys bundle))
+                           (swap! bundles merge bundle)
+                           (swap! loaded inc)
+                           (when (= total @loaded)
+                             (load-core-caches c-state)
+                             (cb @bundles)))))))

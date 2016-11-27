@@ -144,11 +144,18 @@
   ;; require target deps into Planck for AOT analysis & compilation
   (let [ns-name (symbol (str "temp." (gensym)))]
 
-    (doall (for [type [:require :require-macros :import]
-                 n (get dep-spec type)]
-             (planck-require ns-name type n)))
+    (doall (for [[type expr] (->> (for [type [:require :require-macros :import]
+                                        expr (get dep-spec type)]
+                                    (case type
+                                      (:import :require-macros) [[type expr]]
+                                      :require (let [namespace (first (flatten (list expr)))]
+                                                 (cond-> [[:require namespace]]
+                                                         (some (set (flatten (list expr))) #{:include-macros :refer-macros})
+                                                         (conj [:require-macros namespace])))))
+                                  (apply concat))]
+             (planck-require ns-name type expr)))
 
-    (->> (set (topo-sorted-deps ns-name))                   ;; using Planck's analysis cache, we calculate the full graph of required namespaces
+    (->> (set (topo-sorted-deps ns-name))                   ; using Planck's analysis cache, we calculate the full graph of required namespaces
          (#(disj % ns-name 'cljs.env))
          (group-by #(let [provided? (contains? provided %)]
                      (cond (contains? #{'cljs.core 'cljs.core$macros} %) :require-cache
@@ -158,6 +165,7 @@
                            :else :require-cache)))
          (#(dissoc % nil))
          (#(update % :require-cache into '[cljs.core cljs.core$macros]))
+
          ;; merge explicit requires and excludes mentioned in dep-spec
          (merge-with into (select-keys dep-spec [:require-source
                                                  :require-cache
@@ -197,8 +205,7 @@
         goog (reduce (fn [m goog-file]
                        (cond-> m
                                (not (contains? provided-goog-files goog-file))
-                               (-> (assoc goog-file (resource goog-file))
-                                   (update "preload_goog" (fnil conj []) goog-file)))) {} (apply goog/goog-dep-files require-goog))]
+                               (assoc goog-file (resource goog-file)))) {} (apply goog/goog-dep-files require-goog))]
     (merge caches sources foreign-deps goog)))
 
 (patch-planck-js-eval)
@@ -220,9 +227,8 @@
       (let [_ (swap! extra-paths conj (str user-dir "/" cljsbuild-out))
             bundle-spec (calculate-deps dep-spec provided-result)
             deps (bundle-deps bundle-spec)
-            js-string (expose-browser-global ".cljs_live_cache" deps)
-            out-path (str (path-join user-dir output-dir (-> (:name dep-spec) name munge)) ".js")]
-        (println :try out-path)
+            js-string (js/JSON.stringify (clj->js deps)) #_(expose-browser-global ".cljs_live_cache" deps)
+            out-path (str (path-join user-dir output-dir (-> (:name dep-spec) name munge)) ".json")]
         (spit out-path js-string)
         (println "Bundle " (:name dep-spec) ":\n")
         (pprint (reduce-kv (fn [m k v] (assoc m k (set v))) {} (dissoc bundle-spec :provided-goog)))
