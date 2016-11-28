@@ -25,7 +25,6 @@
 (defonce c-state (cljs/empty-state))
 (defonce c-env (atom {}))
 
-
 (defn- transit-json->cljs
   [json]
   (let [rdr (transit/reader :json)]
@@ -54,7 +53,7 @@
                                source (merge {:source source
                                               :lang   lang})
                                cache (merge {:cache (transit-json->cljs cache)}))]
-            #_(when (or cache source)
+            (when (or cache source)
               (set! *loaded-libs* (conj *loaded-libs* (str name)))
               (println [(if (boolean source) "source" "      ")
                         (if (boolean cache) "cache" "     ")] name))
@@ -121,16 +120,6 @@
                      (swap! cljs-cache merge bundle)
                      (cb bundle)))))
 
-(defn load-cache! [c-state cache]
-  (let [{:keys [name] :as cache} (transit-json->cljs cache)]
-    (when (and (not (*loaded-libs* (str name))) cache)
-      (set! *loaded-libs* (conj *loaded-libs* (str name)))
-      (cljs/load-analysis-cache! c-state name cache))))
-
-(defn load-core-caches [c-state]
-  (doseq [path ["cljs/core.cache.json" "cljs/core$macros.cache.json"]]
-    (load-cache! c-state (get @cljs-cache path))))
-
 (defn load-bundles!
   [c-state paths cb]
   (let [bundles (atom {})
@@ -141,5 +130,4 @@
                            (swap! bundles merge bundle)
                            (swap! loaded inc)
                            (when (= total @loaded)
-                             (load-core-caches c-state)
                              (cb @bundles)))))))
