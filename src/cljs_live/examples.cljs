@@ -3,7 +3,8 @@
     [npm.marked]
     [sablono.core :refer-macros [html]]
     [cljs-live.sablono]
-    [cljs-live.compiler :as compiler]))
+    [cljs-live.compiler :as c]
+    [cljs-live.eval :as e]))
 
 (enable-console-print!)
 
@@ -46,7 +47,7 @@
 (defn example [label initial-source]
   (let [source (atom initial-source)
         value (atom)
-        eval (fn [] (reset! value (try (compiler/eval-str @source)
+        eval (fn [] (reset! value (try (e/eval-str @source)
                                        (catch js/Error e
                                          (.debug js/console e)
                                          (str e)))))
@@ -61,7 +62,9 @@
                                :value       @source}]
                              [:.fl.w-50.pl4
                               (let [{:keys [value error]} @value]
-                                (if error (str error)
+                                (if error (do
+                                            (.error js/console (.-cause error))
+                                            #_(str error))
                                           (if (js/React.isValidElement value)
                                             value
                                             [:.dib.ma2.gray
@@ -71,45 +74,52 @@
     (add-watch value :val render-root)
     {:render render}))
 
-(compiler/preloads! compiler/c-state)
 
-(swap! examples conj
+(defn add-examples []
+  (swap! examples conj
+         (example "**quil**, a ClojureScript library from Clojars with macros and a foreign lib that depends on the browser environment:<br/>(renders next to the page title^^)"
+                  "(require '[quil.core :as q :include-macros true])
+  (def colors (atom [(rand-int 255) (rand-int 255) (rand-int 255) (rand-int 255)]))
+  (def ellipse-args (atom [(rand-int 100) (rand-int 100)]))
+  (defn rand-or [a b] (if (< (rand) 0.5) a b))
+  (defn rand-shift [v]  (mapv (rand-or (partial + 5) (partial - 5)) v))
+  (defn draw []
+    (swap! colors rand-shift)
+    (swap! ellipse-args rand-shift)
+    (apply q/fill @colors)
+    (apply q/ellipse (concat '(50 50) @ellipse-args)))
+  (q/defsketch my-sketch-definition
+    :host \"quil-canvas\"
+    :draw draw
+    :size [100 100])
 
-       (example "**quil**, a ClojureScript library from Clojars with macros and a foreign lib that depends on the browser environment:<br/>(renders next to the page title^^)"
-                "(require '[quil.core :as q :include-macros true])
-(def colors (atom [(rand-int 255) (rand-int 255) (rand-int 255) (rand-int 255)]))
-(def ellipse-args (atom [(rand-int 100) (rand-int 100)]))
-(defn rand-or [a b] (if (< (rand) 0.5) a b))
-(defn rand-shift [v]  (mapv (rand-or (partial + 5) (partial - 5)) v))
-(defn draw []
-  (swap! colors rand-shift)
-  (swap! ellipse-args rand-shift)
-  (apply q/fill @colors)
-  (apply q/ellipse (concat '(50 50) @ellipse-args)))
-(q/defsketch my-sketch-definition
-  :host \"quil-canvas\"
-  :draw draw
-  :size [100 100])
+  ")
 
-")
+         (example
+           "**goog.events**, a Google Closure Library dependency:"
+           "(require '[goog.events :as events])\n(events/listenOnce js/window \"mousedown\" #(prn :mouse-down))
+(import '[goog.ui Zippy])\n (subs (str Zippy) 0 250)\n")
 
-       (example
-         "**goog.events**, a Google Closure Library dependency:"
-         "(require '[goog.events :as events])\n(events/listenOnce js/window \"mousedown\" #(prn :mouse-down))")
+         (example "**bcrypt**, from [cljsjs](http://cljsjs.github.io):"
+                  "(require '[cljsjs.bcrypt])\n(let [bcrypt js/dcodeIO.bcrypt]\n  (.genSaltSync bcrypt 10))\n")
 
-       (example "**bcrypt**, from [cljsjs](http://cljsjs.github.io):"
-                "(require '[cljsjs.bcrypt])\n(let [bcrypt js/dcodeIO.bcrypt]\n  (.genSaltSync bcrypt 10))\n")
+         (example
+           "**npm.marked**, a foreign lib defined in this project's `deps.cljs` file:"
+           "(require 'npm.marked)
+  (js/marked \"**Hello, _world!_**\")")
 
-       (example
-         "**npm.marked**, a foreign lib defined in this project's `deps.cljs` file:"
-         "(require 'npm.marked)
-(js/marked \"**Hello, _world!_**\")")
+         (example
+           "**cljs-live.sablono**, a compiled namespace for which we've bundled the analysis cache:"
+           "(require '[cljs-live.sablono :refer [html]])
+  (html
+    [:div
+      [:div {:style {:padding 20 :margin-bottom 10 :color \"black\" :background-color \"pink\"}} \"This is a div rendered with sablono (like hiccup).\"]])"))
+  (render-root))
 
-       (example
-         "**cljs-live.sablono**, a compiled namespace for which we've bundled the analysis cache:"
-         "(require '[cljs-live.sablono :refer [html]])
-(html
-  [:div
-    [:div {:style {:padding 20 :margin-bottom 10 :color \"black\" :background-color \"pink\"}} \"This is a div rendered with sablono (like hiccup).\"]])"))
-
-(render-root)
+(c/load-bundles! ["/js/compiled/cljs.core.json"
+                  "/js/compiled/goog.json"
+                  "/js/compiled/cljs_live.user.json"]
+                 #(do
+                   (e/eval '(require '[cljs.core :include-macros true]) e/c-state)
+                   (render-root)
+                   (add-examples)))

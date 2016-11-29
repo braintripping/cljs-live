@@ -16,10 +16,14 @@
   (reduce (fn [acc k] (assoc acc k (get m k)))
           {} (keys m)))
 
-(defn ->transit [x]
-  (let [w (t/writer :json)]
-    (t/write w (realize-lazy-map x))))
+(def ->transit
+  (memoize
+    (fn [x]
+      (let [w (t/writer :json)]
+        (t/write w (realize-lazy-map x))))))
 
-(defn transit->clj [x]
-  (let [r (t/reader :json)]
-    (t/read r x)))
+(def transit->clj
+  (memoize
+    (fn [x]
+      (let [r (t/reader :json)]
+        (t/read r x)))))

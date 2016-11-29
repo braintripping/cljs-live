@@ -76,10 +76,8 @@
   (get (repl/closure-index-mem) namespace))
 
 (defn goog-src [namespace]
-  (if (#{} namespace)
-    ""
-    (when-let [path (path namespace)]
-      (resource (str path ".js")))))
+  (when-let [path (path namespace)]
+    (resource (str path ".js"))))
 
 (defn name-to-path [name]
   (get-in dep-cache ["nameToPath" (str name)]))
