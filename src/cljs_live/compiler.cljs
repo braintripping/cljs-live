@@ -6,7 +6,7 @@
 (enable-console-print!)
 
 (def debug? false)
-(def log (if debug? println list))
+(def log (if debug? println #()))
 
 (def cljs-cache (atom {}))
 
@@ -101,8 +101,8 @@
                                cache (merge {:cache (transit-json->cljs cache)}))]
             (when (or cache source)
               (set! *loaded-libs* (conj *loaded-libs* (str name)))
-              (println [(if (boolean source) "source" "      ")
-                        (if (boolean cache) "cache" "     ")] name))
+              (log [(if (boolean source) "source" "      ")
+                    (if (boolean cache) "cache" "     ")] name))
             result)))))
 
 (defn get-json [path cb]

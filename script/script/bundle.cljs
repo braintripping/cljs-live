@@ -50,11 +50,18 @@
       (string/replace "/" ".")))
 
 (defn prune-cache
-  "Lots of redundant info in the cache. For now, remove :meta (this is probably not the right thing to do; dnolen recommends a cljs patch to dedupe this.)"
+  "Lots of redundant info in the cache, which we aggressively prune. Can let some of this back in if it is needed."
   [cache-str]
   (let [cache (transit->clj cache-str)]
     (->transit (update cache :defs #(reduce-kv (fn [m k v]
-                                                 (assoc m k (dissoc v :meta))) {} %)))))
+                                                 (assoc m k (dissoc v
+                                                                    :meta
+                                                                    :file
+                                                                    :line
+                                                                    :column
+                                                                    :end-line
+                                                                    :end-column
+                                                                    :arglists-meta))) {} %)))))
 
 (defn cache-str
   "Look everywhere to find a cache file."
@@ -172,7 +179,7 @@
                                   (apply concat))]
              (planck-require ns-name type expr)))
 
-    (->> (set (transitive-deps ns-name))                   ; read from Planck's analysis cache to get transitive dependencies
+    (->> (set (transitive-deps ns-name))                    ; read from Planck's analysis cache to get transitive dependencies
          (#(disj % ns-name 'cljs.env))
          (group-by #(let [provided? (contains? provided %)]
                       (cond (contains? #{'cljs.core 'cljs.core$macros} %) nil ;; only include cljs.core($macros) when explicitly requested

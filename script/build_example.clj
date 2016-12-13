@@ -10,8 +10,8 @@
                  cljs.build.api/watch
                  cljs.build.api/build)]
   (time (build-fn "src"
-                  (cond-> {:main            "cljs-live.examples"
-                           :output-to       "resources/public/js/compiled/cljs_live.js"
+                  (cond-> {:main            "cljs-live.eval"
+                           :output-to       "resources/public/js/compiled/cljs_live_eval.js"
                            :output-dir      "resources/public/js/compiled/out"
                            :cache-analysis  true
                            :dump-core       false

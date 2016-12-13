@@ -26,13 +26,15 @@
 ```
 {:cljsbuild-out \"resources/public/js/compiled/out\"
  :output-dir    \"resources/public/js/compiled\"
- :bundles       [{:name          cljs-live-cache
+ :bundles       [{:name          cljs-live.user
                   :require       [npm.marked
                                   cljsjs.bcrypt
                                   goog.events
                                   [quil.core :include-macros true]]
                   :require-cache [cljs-live.sablono]
-                  :provided      [cljs-live.examples]}]}
+                  :provided      [cljs-live.examples]}
+                 {:name cljs.core
+                  :require-caches [cljs.core cljs.core$macros]}]
 ```
 
 ")
