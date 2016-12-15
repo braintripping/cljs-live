@@ -122,6 +122,6 @@
                   "/js/compiled/goog.json"
                   "/js/compiled/cljs_live.user.json"]
                  #(do
-                   (e/eval '(require '[cljs.core :include-macros true]) e/c-state)
+                   (e/eval '(require '[cljs.core :include-macros true]))
                    (render-root)
                    (add-examples)))

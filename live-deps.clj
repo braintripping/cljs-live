@@ -1,5 +1,6 @@
 {:cljsbuild-out "resources/public/js/compiled/out"
  :output-dir    "resources/public/js/compiled"
+ :source-paths  ["src"]
  :bundles       [{:name          cljs.core
                   :require-cache [cljs.core cljs.core$macros]}
                  {#_:dependencies  #_[[quil "2.5.0"]

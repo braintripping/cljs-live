@@ -78,7 +78,7 @@
               (some-> (get-in @repl/st [:cljs.analyzer/namespaces namespace])
                       realize-lazy-map
                       (->transit)))
-          prune-cache))
+          #_prune-cache))
 
 (def cache-map
   (memoize (fn [namespace]

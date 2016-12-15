@@ -6,7 +6,9 @@
 (enable-console-print!)
 
 (def debug? false)
-(def log (if debug? println #()))
+
+(defn log [& args]
+  (when debug? (apply println args)))
 
 (def cljs-cache (atom {}))
 
@@ -57,9 +59,9 @@
 
            ;; wrap goog.provide to ignore 'Namespace %name already provided' errors
            (aset js/goog "provide"
-                 #(do
-                    (set! *loaded-libs* (conj *loaded-libs* %))
-                    (try (goog-provide %) (catch js/Error _))))
+                 (fn [name]
+                   (set! *loaded-libs* (conj *loaded-libs* name))
+                   (try (goog-provide name) (catch js/Error _))))
 
            ;; wrap goog.require to avoid reloading existing namespaces
            (aset js/goog "require"
@@ -80,16 +82,18 @@
 
 (defn load-fn
   "Load requirements from bundled deps"
-  [{:keys [path macros name]} cb]
+  [c-state {:keys [path macros name]} cb]
 
   (let [path (cond-> path
                      macros (str "$macros"))
         name (if-not macros name
                             (symbol (str name "$macros")))
-        provided? (is-provided (munge (str name)))]
-    (cb (if (*loaded-libs* (str name))
+        js-provided? (is-provided (munge (str name)))
+        c-state-provided? (contains? (get-in @c-state [::loaded]) name)]
+    (swap! c-state update ::loaded (fnil conj #{}) name)
+    (cb (if (and (*loaded-libs* (str name)) c-state-provided?)
           blank-result
-          (let [[source lang] (when-not provided?
+          (let [[source lang] (when-not js-provided?
                                 (or (some-> (get @cljs-cache (get-in @cljs-cache ["name-to-path" (munge (str name))] (str path ".js")))
                                             (list :js))
                                     (some-> (get @cljs-cache (str path ".clj"))

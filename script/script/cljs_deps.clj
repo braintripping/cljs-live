@@ -1,11 +1,18 @@
 #!/usr/bin/env lein exec -p
 (ns script.cljs-deps
   (:require [cljs.closure :as cljsc]
+            [cljs.build.api :as api]
             [cljs.env :as env]
             [clojure.string :as string]
             [clojure.tools.reader :as r]
             [clojure.java.io :as io]
             [cljs.js-deps :as deps]))
+
+(defn compile-cljs [src-path output-dir]
+  (api/build src-path {:output-dir     output-dir
+                       :dump-core      false
+                       :parallel-build true
+                       :optimizations  :none}))
 
 (defn cljs-deps [& inputs]
   (binding [env/*compiler* (env/default-compiler-env)]
@@ -38,10 +45,13 @@
        (map symbol)
        set))
 
-(let [provides (try {:value (doall (for [{:keys [provided dependencies]} (:bundles (->> (cmd-arg "--deps")
-                                                                                        slurp
-                                                                                        r/read-string))]
+(let [{:keys [bundles cljsbuild-out source-paths]} (->> (cmd-arg "--deps")
+                                                        slurp
+                                                        r/read-string)
+      provides (try {:value (doall (for [{:keys [provided dependencies]} bundles]
                                      (do (when dependencies (install-deps dependencies))
+                                         (doseq [s source-paths]
+                                           (compile-cljs s cljsbuild-out))
                                          (transitive-deps provided))))}
                     (catch Exception e {:error e}))]
   (println (str "__BEGIN_CLASSPATH__"
