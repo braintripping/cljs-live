@@ -1,6 +1,6 @@
-(defproject org.clojars.mhuebert/cljs-live "0.1.11"
+(defproject org.clojars.mhuebert/cljs-live "0.1.12-SNAPSHOT"
   :description "Tools for bunding dependencies for self-hosted ClojureScript"
-  :url "http://example.com/FIXME"
+  :url "https://github.com/mhuebert/cljs-live"
   :license {:name "Eclipse Public License"
             :url  "http://www.eclipse.org/legal/epl-v10.html"}
   :min-lein-version "2.7.1"
@@ -25,6 +25,8 @@
 
   :plugins [[lein-npm "0.6.2"]
             [lein-cljsbuild "1.1.4" :exclusions [org.clojure/clojure]]]
+
+  :lein-release {:deploy-via :clojars}
 
   :clean-targets ^{:protect false} ["resources/public/js/compiled/out" ".planck_cache"]
 
