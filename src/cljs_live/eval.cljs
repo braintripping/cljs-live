@@ -3,6 +3,7 @@
             [cljs.tools.reader :as r]
             [cljs.analyzer :refer [*cljs-warning-handlers*]]
             [cljs-live.compiler :as c]
+            [cljs.repl :refer [print-doc]]
             [cljs.tools.reader.reader-types :as rt]
             [clojure.string :as string]))
 
@@ -10,6 +11,7 @@
 
 (defonce c-state (cljs/empty-state))
 (defonce c-env (atom {:ns (symbol "cljs.user")}))
+
 (defn c-opts
   [c-state env]
   {:load          (partial c/load-fn c-state)
@@ -25,65 +27,153 @@
   (when (and s (not= "" s))
     (r/read {} (rt/indexing-push-back-reader s))))
 
-(defn get-ns [ns c-state] (get-in @c-state [:cljs.analyzer/namespaces ns]))
+(defn get-ns [c-state ns] (get-in @c-state [:cljs.analyzer/namespaces ns]))
 
-(defn resolve-symbol [c-state sym]
-  (binding [cljs.env/*compiler* c-state]
-    (:name (cljs.analyzer/resolve-var (assoc @cljs.env/*compiler* :ns (or (get-ns c-state (:ns @c-env)) 'cljs.user)) sym))))
+(defn toggle-macros-ns [sym]
+  (let [s (str sym)]
+    (symbol
+      (if (string/ends-with? s "$macros")
+        (string/replace s "$macros" "")
+        (str s "$macros")))))
 
-(def ^:dynamic *repl-special*
-  {'in-ns (fn [n]
-            (when-not (symbol? n)
-              (throw (js/Error. "`in-ns` must be passed a symbol.")))
-            (swap! c-env assoc :ns n)
-            {:value nil
-             :ns    n})})
+(defn resolve-var
+  ([sym] (resolve-var c-state c-env sym))
+  ([c-state c-env sym]
+   (binding [cljs.env/*compiler* c-state]
+     (cljs.analyzer/resolve-var (assoc @cljs.env/*compiler* :ns (get-ns c-state (or (:ns @c-env) 'cljs.user))) sym))))
 
-(defn repl-special [op & args]
-  (when-let [f (get *repl-special* op)]
-    (try (apply f args)
-         (catch js/Error e {:error e}))))
+(defn resolve-symbol
+  ([sym] (resolve-symbol c-state c-env sym))
+  ([c-state c-env sym]
+   (:name (resolve-var c-state c-env sym))))
 
-(declare eval)
+(declare eval eval-forms)
 
-(defn ensure-macro-ns [sym]
-  (if
-    (string/ends-with? (name sym) "$macros")
-    sym
-    (symbol (namespace sym) (str (name sym) "$macros"))))
+(defn ensure-ns
+  "Create namespace if it doesn't exist"
+  [c-state c-env ns]
+  (when-not (contains? (get @c-state :cljs.analyzer/namespaces) ns)
+    (let [prev-ns (:ns @c-env)]
+      (eval c-state c-env `(~'ns ~ns))
+      (swap! c-env assoc :ns prev-ns))))
+
+(defn ->macro-sym [sym]
+  (let [ns? (namespace sym)
+        ns (or ns? (name sym))
+        name (if ns? (name ns) nil)]
+    (if (string/ends-with? ns "$macros")
+      ns
+      (if ns? (symbol (str ns "$macros") name)
+              (symbol (str ns "$macros"))))))
+
+(defn wrap-ns
+  "Wrap ns statements to include :ns key in result.
+  (May become unnecessary if cljs.js/eval returns :ns in result.)"
+  [c-state c-env body]
+  (let [result (eval c-state c-env (with-meta body {:skip-repl-special true}))]
+    (cond-> result
+            (contains? result :value) (assoc :ns (second body)))))
+
+(defn in-ns
+  "Switch to a different namespace"
+  [c-state c-env [_ ns]]
+  (when-not (symbol? ns) (throw (js/Error. "`in-ns` must be passed a symbol.")))
+  (ensure-ns c-state c-env ns)
+  (swap! c-env assoc :ns ns)
+  {:value nil
+   :ns    ns})
+
+(defn with-ns
+  "Execute body within temp-ns namespace, then return to previous namespace. Create namespace if it doesn't exist."
+  [c-state c-env [_ temp-ns & body]]
+  (ensure-ns c-state c-env temp-ns)
+  (let [ns (:ns @c-env)
+        _ (swap! c-env assoc :ns temp-ns)
+        result (eval-forms c-state c-env body)]
+    (swap! c-env assoc :ns ns)
+    result))
+
+(defn doc
+  "Show doc for symbol"
+  [c-state c-env [_ n]]
+  (let [[namespace name] (let [n (resolve-symbol n)]
+                           (map symbol [(namespace n) (name n)]))]
+    {:value
+     (with-out-str
+       (some-> (get-in @c-state [:cljs.analyzer/namespaces namespace :defs name])
+               (select-keys [:name :doc :arglists])
+               print-doc)
+       "Not found")}))
+
+(defn wrap-defmacro
+  "Wraps defmacro to return a var, like def*"
+  [c-state c-env body]
+  (let [ns (->macro-sym (:ns @c-env))
+        result (eval c-state c-env (with-meta body {:skip-repl-special true}) {:macros-ns true :ns ns})]
+    (if (true? (get result :value))
+      (eval c-state c-env `(~'var ~(symbol ns (second body))))
+      result)))
+
+(def repl-specials
+  {'ns       wrap-ns
+   'in-ns    in-ns
+   'with-ns  with-ns
+   'doc      doc
+   'defmacro wrap-defmacro})
+
+(defn swap-repl-specials!
+  "Mutate repl specials available to the eval fns in this namespace."
+  [f & args]
+  (set! repl-specials (apply f (cons repl-specials args))))
+
+(defn repl-special [c-state c-env body]
+  (when-let [f (get repl-specials (first body))]
+    (when-not (contains? (meta body) :skip-repl-special)
+      (try (f c-state c-env body)
+           (catch js/Error e {:error e})))))
+
+(defn refer-var
+  "Refer a var into its (non)-macro namespace. Note that `defmacro` emits a var in this repl."
+  [c-state var]
+  (let [{:keys [ns name macro]} (meta var)]
+    (swap! c-state update-in [:cljs.analyzer/namespaces (toggle-macros-ns ns)]
+           #(-> %
+                (assoc-in [(if macro :use-macros :uses) name] ns)
+                (assoc-in [(if macro :require-macros :requires) ns] ns)))))
+
+(defn warning-handler
+  "Collect warnings in a dynamic var"
+  [form warning-type env extra]
+  (some-> *cljs-warnings*
+          (swap! conj {:type        warning-type
+                       :env         env
+                       :extra       extra
+                       :source-form form})))
 
 (defn eval
   "Eval a single form, keeping track of current ns in c-env"
-  ([form] (eval form c-state c-env))
-  ([form c-state c-env]
-   (or (and (seq? form) (apply repl-special form))
-       (let [result (atom)
-             ns? (and (seq? form) (#{'ns} (first form)))
-             macros-ns? (and (seq? form) (= 'defmacro (first form)))
-             opts (cond-> (c-opts c-state c-env)
-                          macros-ns?
-                          (merge {:macros-ns true
-                                  :ns        (ensure-macro-ns (:ns @c-env))}))]
-         (binding [*cljs-warning-handlers* [(fn [warning-type env extra]
-                                              (some-> *cljs-warnings*
-                                                      (swap! conj {:type        warning-type
-                                                                   :env         env
-                                                                   :extra       extra
-                                                                   :source-form form})))]
-                   r/*data-readers* (conj r/*data-readers* {'js identity})]
-           (try (cljs/eval c-state form opts (partial swap! result merge))
-                (when (and macros-ns? (not= (:ns opts) (:ns @c-env)))
-                  (eval `(require-macros '[~(:ns @c-env) :refer [~(second form)]])))
-                (catch js/Error e
-                  (.error js/console (or (.-cause e) e))
-                  (swap! result assoc :error e))))
-         (when (and ns? (contains? @result :value))
-           (swap! c-env assoc :ns (second form)))
-         @result))))
+  ([form] (eval c-state c-env form))
+  ([c-state c-env form] (eval c-state c-env form {}))
+  ([c-state c-env form opts]
+   (let [is-seq? (seq? form)
+         {:keys [value ns] :as result} (or (and is-seq? (repl-special c-state c-env form))
+                                           (let [result (atom)]
+                                             (binding [*cljs-warning-handlers* [(partial warning-handler form)]
+                                                       r/*data-readers* (conj r/*data-readers* {'js identity})]
+                                               (try (cljs/eval c-state form (merge (c-opts c-state c-env) opts) (partial swap! result merge))
+                                                    (catch js/Error e (swap! result assoc :error e))))
+                                             @result))]
+
+     (when (and (contains? result :ns) (not= ns (:ns @c-env)))
+       (swap! c-env assoc :ns ns))
+
+     (when (and (contains? result :value) (var? value))
+       (refer-var c-state value))
+
+     result)))
 
 (defn wrap-source
-  "Clojure reader only returns the last top-level form in a string,
-  so we wrap user source strings."
+  "Wrap source in a vector to get all forms (Clojure reader returns only the last top-level form in a string)"
   [src]
   (str "[\n" src "\n]"))
 
@@ -91,10 +181,10 @@
   "Read src using default tools.reader. If an error is encountered,
   re-read an unwrapped version of src using indexed reader to return
   a correct error location."
-  [src c-state]
-  (binding [r/resolve-symbol (partial resolve-symbol c-state)
+  [c-state c-env src]
+  (binding [r/resolve-symbol #(resolve-symbol c-state c-env %)
             r/*data-readers* (conj r/*data-readers* {'js identity})]
-    (try (r/read-string (wrap-source src))
+    (try {:value (r/read-string (wrap-source src))}
          (catch js/Error e1
            (try (read-string-indexed src)
                 ;; if no error thrown by indexed reader, return original error
@@ -102,16 +192,22 @@
                 (catch js/Error e2
                   {:error e2}))))))
 
+(defn eval-forms
+  "Eval a list of forms"
+  [c-state c-env forms]
+  (binding [*cljs-warnings* (or *cljs-warnings* (atom []))]
+    (loop [forms forms]
+      (let [{:keys [error] :as result} (eval c-state c-env (first forms))
+            remaining (rest forms)]
+        (if (or error (empty? remaining))
+          (assoc result :warnings @*cljs-warnings*)
+          (recur remaining))))))
+
 (defn eval-str
   "Eval string by first reading all top-level forms, then eval'ing them one at a time."
-  ([src] (eval-str src c-state c-env))
-  ([src c-state c-env]
-   (binding [*cljs-warnings* (atom [])]
-     (let [{:keys [error] :as result} (read-src src c-state)]
-       (if error result
-                 (loop [forms result]
-                   (let [{:keys [error] :as result} (eval (first forms) c-state c-env)
-                         remaining (rest forms)]
-                     (if (or error (empty? remaining))
-                       (assoc result :warnings @*cljs-warnings*)
-                       (recur remaining)))))))))
+  ([src] (eval-str c-state c-env src))
+  ([c-state c-env src]
+   (let [{:keys [error value] :as result} (read-src c-state c-env src)]
+     (if error
+       result
+       (eval-forms c-state c-env value)))))

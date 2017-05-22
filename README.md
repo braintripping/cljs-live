@@ -1,6 +1,12 @@
-# cljs-live
+# ClojureScript Self-Host Bundler
 
-Because ClojureScript in the browser is fun, but packaging dependencies isn't.
+//\\//\\//\\//\\//\\
+
+Warning: alpha, depends on implementation details of specific versions of ClojureScript and Planck.
+
+\\//\\//\\//\\//\\//
+
+Bundle ClojureScript code for live evaluation in the browser.
 
 Example: https://cljs-live.firebaseapp.com
 
@@ -24,6 +30,7 @@ Given a map containing `ns` requirement expressions (`:require, :require-macros,
 ```clj
 {:output-dir     "resources/public/js/cljs_live_cache.js" ;; where to save the output file
  :cljsbuild-out  "resources/public/js/compiled/out"} ;; the `output-dir` of your cljsbuild options
+ :source-paths   ["src"]
  :bundles        [{;; same behaviour as `ns` forms:
                    :require        [app.repl-user :include-macros true]
                    :require-macros [] ;; same as above

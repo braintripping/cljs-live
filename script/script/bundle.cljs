@@ -22,17 +22,19 @@
 
 (def user-dir (get-named-arg "--user-dir"))
 
-(defn resource
+(def resource
   "Loads the content for a given file. Includes planck cache path."
-  [file]
-  (first (or (js/PLANCK_READ_FILE file)
-             (js/PLANCK_LOAD file)
-             (first (for [prefix @extra-paths
-                          :let [path (str prefix "/" file)
-                                source (js/PLANCK_READ_FILE path)]
-                          :when source]
-                      source))
-             (js/PLANCK_READ_FILE (str (:cache-path @repl/app-env) "/" (munge file))))))
+  (memoize (fn [file]
+             (or (first (js/PLANCK_READ_FILE file))
+                 (first (js/PLANCK_LOAD file))
+                 (first (for [prefix @extra-paths
+                              :let [path (str prefix "/" file)
+                                    source (js/PLANCK_READ_FILE path)]
+                              :when source]
+                          source))
+                 (try (slurp (do (prn (str (:cache-path @repl/app-env) "/" (munge file)))
+                                 (str (:cache-path @repl/app-env) "/" (munge file))))
+                      (catch js/Error e nil))))))
 
 (defn ns->path
   ([s] (ns->path s ""))
@@ -63,22 +65,23 @@
                                                                     :end-column
                                                                     :arglists-meta))) {} %)))))
 
-(defn cache-str
+(def cache-str
   "Look everywhere to find a cache file."
-  [namespace]
-  (some-> (or (resource (ns->path namespace ".cljs.cache.json"))
-              (resource (ns->path namespace ".cljc.cache.json"))
-              (first (doall (for [ext [".cljs" ".cljc" "" ".clj"] ;; planck caches don't have file extensions
-                                  [format f] [["edn" (comp ->transit r/read-string)]
-                                              ["json" identity]]
-                                  :let [path (ns->path namespace (str ext ".cache." format))
-                                        resource (some-> (resource path) f)]
-                                  :when resource]
-                              resource)))
-              (some-> (get-in @repl/st [:cljs.analyzer/namespaces namespace])
-                      realize-lazy-map
-                      (->transit)))
-          #_prune-cache))
+  (memoize (fn [namespace required?]
+             (some-> (or (some-> (get-in @repl/st [:cljs.analyzer/namespaces namespace])
+                                 realize-lazy-map
+                                 (->transit))
+                         (resource (ns->path namespace ".cljs.cache.json"))
+                         (resource (ns->path namespace ".cljc.cache.json"))
+                         (first (doall (for [ext [".cljs" ".cljc" "" ".clj"] ;; planck caches don't have file extensions
+                                             [format f] [["edn" (comp ->transit r/read-string)]
+                                                         ["json" identity]]
+                                             :let [path (ns->path namespace (str ext ".cache." format))
+                                                   resource (some-> (resource path) f)]
+                                             :when resource]
+                                         resource)))
+                         (when required? (throw (js/Error (str "Could not find cache for: " namespace)))))
+                     #_prune-cache))))
 
 (def cache-map
   (memoize (fn [namespace]
@@ -90,23 +93,31 @@
 
 (assert (= (mapv ns->path ['my-app.core 'my-app.core$macros 'my-app.some-lib])
            ["my_app/core" "my_app/core$macros" "my_app/some_lib"]))
-(defn get-deps
-  [ana-ns]
-  (->> (select-keys ana-ns [:requires :imports])
-       vals
-       (keep identity)
-       (map vals)
-       (apply concat)
-       (concat (->> ana-ns :require-macros keys (map #(symbol (str % "$macros")))))))
+
+(defn macroize-sym [s]
+  (str s "$macros"))
+
+(def get-deps
+  (memoize (fn [ana-ns]
+             (->> (select-keys ana-ns [:requires :imports])
+                  vals
+                  (keep identity)
+                  (map vals)
+                  (apply concat)
+                  (concat (->> ana-ns :require-macros vals (map macroize-sym)))))))
+
+
 (def js-index js-deps/foreign-libs-index)
 ;; modified, from Planck
 
 (defn transitive-deps
   "Given a dep symbol to load, returns a topologically sorted sequence of deps to load, in load order."
-  ([dep] (transitive-deps dep #{}))
-  ([dep found]
-   (let [requires (filter (complement found) (get-deps (cache-map dep)))]
-     (set (concat (mapcat #(transitive-deps % (into found requires)) requires) [dep])))))
+  ([dep-name] (transitive-deps dep-name #{}))
+  ([dep-name found]
+   (let [new-deps (filter (complement found) (get-deps (cache-map dep-name)))
+         found (into found new-deps)]
+     (cond-> found
+             (seq new-deps) (into (mapcat #(transitive-deps % found) new-deps))))))
 
 (defn js-files-to-load
   "Returns the files to load given and index and a foreign libs dep."
@@ -158,50 +169,52 @@
                #(when (:error %) (prn %))))
 
 (def planck-require
-  (fn [ns-name type n]
-    (let [form (with-meta `(~'ns ~ns-name (~type ~n))
+  (fn [ns-name n]
+    (let [form (with-meta `(~'ns ~ns-name
+                             ~@(for [[type expr] (seq n)]
+                                 `(~type ~@expr)))
                           {:merge true :line 1 :column 1})]
+      (println :planck-require form)
       (cljs.js/eval repl/st form {} #(when-let [e (:error %)] (println "\n\nfailed: " form "\n" e))))))
 
 (defn calculate-deps [dep-spec provided]
-
   ;; require target deps into Planck for AOT analysis & compilation
   (let [ns-name (symbol (str "temp." (gensym)))]
 
-    (doall (for [[type expr] (->> (for [type [:require :require-macros :import]
-                                        expr (get dep-spec type)]
-                                    (case type
-                                      (:import :require-macros) [[type expr]]
-                                      :require (let [namespace (first (flatten (list expr)))]
-                                                 (cond-> [[:require namespace]]
-                                                         (some (set (flatten (list expr))) #{:include-macros :refer-macros})
-                                                         (conj [:require-macros namespace])))))
-                                  (apply concat))]
-             (planck-require ns-name type expr)))
+    (planck-require ns-name (->> (for [type [:require :require-macros :import]
+                                       expr (get dep-spec type)]
+                                   (case type
+                                     (:import :require-macros) [[type expr]]
+                                     :require (let [namespace (first (flatten (list expr)))]
+                                                (cond-> [[:require namespace]]
+                                                        (some (set (flatten (list expr))) #{:include-macros :refer-macros})
+                                                        (conj [:require-macros namespace])))))
+                                 (apply concat)
+                                 (reduce (fn [m [k v]] (update m k (fnil conj #{}) v)) {})))
 
-    (->> (set (transitive-deps ns-name))                    ; read from Planck's analysis cache to get transitive dependencies
-         (#(disj % ns-name 'cljs.env))
-         (group-by #(let [provided? (contains? provided %)]
-                      (cond (contains? #{'cljs.core 'cljs.core$macros} %) nil ;; only include cljs.core($macros) when explicitly requested
-                            (goog/goog? %) (if provided? :provided-goog :require-goog)
-                            (foreign-lib? %) (when-not provided? :require-foreign-dep)
-                            (not provided?) :require-source
-                            :else :require-cache)))
-         (#(dissoc % nil))
+    (as-> (transitive-deps ns-name) deps
+          (disj deps 'cljs.env)                             ; read from Planck's analysis cache to get transitive dependencies
+          (group-by #(let [provided? (contains? provided %)]
+                       (cond (contains? #{'cljs.core 'cljs.core$macros} %) nil ;; only include cljs.core($macros) when explicitly requested
+                             (goog/goog? %) (if provided? :provided-goog :require-goog)
+                             (foreign-lib? %) (when-not provided? :require-foreign-dep)
+                             (not provided?) :require-source
+                             :else :require-cache)) deps)
+          (dissoc deps nil)
 
-         ;; merge explicit requires and excludes mentioned in dep-spec
-         (merge-with into (select-keys dep-spec [:require-source
-                                                 :require-cache
-                                                 :require-foreign-dep
-                                                 :require-goog]))
-         (merge-with #(remove (set %1) %2) (->> (select-keys dep-spec [:exclude-source
-                                                                       :exclude-cache
-                                                                       :exclude-foreign-dep
-                                                                       :exclude-goog])
-                                                (reduce-kv
-                                                  #(assoc %1 (-> (name %2)
-                                                                 (string/replace "exclude" "require")
-                                                                 keyword) %3) {}))))))
+          ;; merge explicit requires and excludes mentioned in dep-spec
+          (merge-with into (select-keys dep-spec [:require-source
+                                                  :require-cache
+                                                  :require-foreign-dep
+                                                  :require-goog]) deps)
+          (merge-with #(remove (set %1) %2) (->> (select-keys dep-spec [:exclude-source
+                                                                        :exclude-cache
+                                                                        :exclude-foreign-dep
+                                                                        :exclude-goog])
+                                                 (reduce-kv
+                                                   #(assoc %1 (-> (name %2)
+                                                                  (string/replace "exclude" "require")
+                                                                  keyword) %3) {})) deps))))
 
 (defn bundle-deps [{:keys [require-source
                            require-cache
@@ -212,16 +225,17 @@
   (let [provided-goog-files (set (mapcat goog/goog-dep-files provided-goog))
 
         caches (reduce (fn [m namespace]
-                         (let [cache (cache-str namespace)]
+                         (let [cache (cache-str namespace true)]
                            (cond-> m
                                    cache (assoc (str (ns->path namespace) ".cache.json") cache)))) {} require-cache)
         sources (reduce (fn [m namespace]
                           (let [path (ns->path namespace)
-                                source (resource (str path ".js"))
-                                cache (cache-str namespace)]
+                                source (or (resource (str path ".js")) (throw (js/Error (str "Source not found: " namespace))))
+                                cache (cache-str namespace false)]
                             (cond-> m
                                     source (assoc (str path ".js") source)
                                     cache (assoc (str path ".cache.json") cache)))) {} require-source)
+
         foreign-deps (reduce (fn [m namespace]
                                (reduce (fn [m file]
                                          (-> m
@@ -241,22 +255,28 @@
   (-> (string/join "/" strs)
       (string/replace #"/+" "/")))
 
-(let [{:keys [output-dir cljsbuild-out bundles]} (-> (get-named-arg "--deps")
-                                                     (slurp)
-                                                     (r/read-string))
-      {provided-results :value
-       error            :error} (-> (line-seq *in*)         ;; provided namespaces may be passed via stdin, as :value in a map
-                                    (string/join)
-                                    (r/read-string))]
-  (if error
-    (println error)
-    (doseq [[dep-spec provided] (partition 2 (interleave bundles provided-results))]
-      (let [_ (swap! extra-paths conj (str user-dir "/" cljsbuild-out))
-            bundle-spec (calculate-deps dep-spec provided)
-            deps (assoc (bundle-deps bundle-spec) :provided (vec (sort provided)))
-            js-string (js/JSON.stringify (clj->js deps)) #_(expose-browser-global ".cljs_live_cache" deps)
-            out-path (str (path-join user-dir output-dir (-> (:name dep-spec) name munge)) ".json")]
-        (spit out-path js-string)
-        (println "Bundle " (:name dep-spec) ":\n")
-        (pprint (reduce-kv (fn [m k v] (assoc m k (set v))) {} (dissoc bundle-spec :provided-goog)))
-        (println "emitted " out-path)))))
+(defn -main []
+  (println "Main")
+  (let [{:keys [output-dir cljsbuild-out bundles]} (-> (get-named-arg "--deps")
+                                                       (slurp)
+                                                       (r/read-string))
+        stdin (string/join (line-seq *in*))
+        {provided-results :value
+         error            :error} (try (r/read-string stdin) ;; provided namespaces may be passed via stdin, as :value in a map
+                                       (catch js/Error e
+                                         (prn stdin)
+                                         (println "read-string error" e)))]
+
+    (if error
+      (println "Error reading standard in" error "\n\n")
+      (doseq [[dep-spec provided] (partition 2 (interleave bundles provided-results))]
+        (prn dep-spec)
+        (let [_ (swap! extra-paths conj (str user-dir "/" cljsbuild-out))
+              bundle-spec (calculate-deps dep-spec provided)
+              deps (assoc (bundle-deps bundle-spec) :provided (vec (sort provided)))
+              js-string (js/JSON.stringify (clj->js deps))
+              out-path (str (path-join user-dir output-dir (-> (:name dep-spec) name munge)) ".json")]
+          (spit out-path js-string)
+          (println "Bundle " (:name dep-spec) ":\n")
+          (pprint (reduce-kv (fn [m k v] (assoc m k (set v))) {} (dissoc bundle-spec :provided-goog)))
+          (println "emitted " out-path))))))
