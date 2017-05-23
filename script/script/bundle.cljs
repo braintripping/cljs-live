@@ -174,6 +174,9 @@
     (str export-var " = " export-var " || {}; "
          (reduce-kv (fn [s path src]
                       (str s export-var "['" path "'] = " (js/JSON.stringify (clj->js src)) ";")) "" payload))))
+
+
+
 (defn patch-planck-js-eval
   "Instrument planck's js-eval to ignore exceptions; we are only interested in build artefacts,
   and some runtime errors occur because Planck is not a browser environment."
@@ -201,19 +204,33 @@
                           {:merge true :line 1 :column 1})]
       (cljs.js/eval repl/st form {} #(when-let [e (:error %)] (println "\n\nfailed: " form "\n" e))))))
 
+
+(defn with-planck-excludes [excludes f]
+  (let [skip-load? repl/skip-load?]
+    ;; prevent load of :exclude and :require-cache libs in Planck
+    (set! repl/skip-load? (fn [x]
+                            (or (excludes (:name x))
+                                (skip-load? x))))
+    (f)
+    (set! repl/skip-load? skip-load?)))
+
 (defn calculate-deps [dep-spec provided]
   ;; require target deps into Planck for AOT analysis & compilation
   (let [ns-name (symbol (str "temp." (gensym)))]
-    (planck-require ns-name (->> (for [type [:require :require-macros :import]
-                                       expr (get dep-spec type)]
-                                   (case type
-                                     (:import :require-macros) [[type expr]]
-                                     :require (let [namespace (first (flatten (list expr)))]
-                                                (cond-> [[:require namespace]]
-                                                        (some (set (flatten (list expr))) #{:include-macros :refer-macros})
-                                                        (conj [:require-macros namespace])))))
-                                 (apply concat)
-                                 (reduce (fn [m [k v]] (update m k (fnil conj #{}) v)) {})))
+    (with-planck-excludes
+      (->> (concat (:exclude-source dep-spec)
+                   (:require-cache dep-spec))
+           (into #{}))
+      #(planck-require ns-name (->> (for [type [:require :require-macros :import]
+                                          expr (get dep-spec type)]
+                                      (case type
+                                        (:import :require-macros) [[type expr]]
+                                        :require (let [namespace (first (flatten (list expr)))]
+                                                   (cond-> [[:require namespace]]
+                                                           (some (set (flatten (list expr))) #{:include-macros :refer-macros})
+                                                           (conj [:require-macros namespace])))))
+                                    (apply concat)
+                                    (reduce (fn [m [k v]] (update m k (fnil conj #{}) v)) {}))))
     (as-> (transitive-deps ns-name) deps
           (disj deps 'cljs.env)                             ; read from Planck's analysis cache to get transitive dependencies
           (group-by #(let [provided? (contains? provided %)]
