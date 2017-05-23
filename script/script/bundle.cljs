@@ -18,23 +18,24 @@
 (defn get-named-arg [name]
   (second (first (filter #(= name (first %)) (partition 2 1 *command-line-args*)))))
 
-(def extra-paths (atom []))
+
 
 (def user-dir (get-named-arg "--user-dir"))
+(def out-path nil)
+
+
+
+(defn safe-slurp [path]
+  (try (slurp path)
+       (catch js/Object e nil)))
 
 (def resource
   "Loads the content for a given file. Includes planck cache path."
-  (memoize (fn [file]
-             (or (first (js/PLANCK_READ_FILE file))
-                 (first (js/PLANCK_LOAD file))
-                 (first (for [prefix @extra-paths
-                              :let [path (str prefix "/" file)
-                                    source (js/PLANCK_READ_FILE path)]
-                              :when source]
-                          source))
-                 (try (slurp (do (prn (str (:cache-path @repl/app-env) "/" (munge file)))
-                                 (str (:cache-path @repl/app-env) "/" (munge file))))
-                      (catch js/Error e nil))))))
+  (memoize (fn [filename]
+             (or (some-> (js/PLANCK_READ_FILE filename) (first))
+                 (some-> (js/PLANCK_LOAD filename) (first))
+                 (safe-slurp (str out-path "/" filename))
+                 (safe-slurp (str (:cache-path @repl/app-env) "/" (munge filename)))))))
 
 (defn ns->path
   ([s] (ns->path s ""))
@@ -68,20 +69,26 @@
 (def cache-str
   "Look everywhere to find a cache file."
   (memoize (fn [namespace required?]
-             (some-> (or (some-> (get-in @repl/st [:cljs.analyzer/namespaces namespace])
-                                 realize-lazy-map
-                                 (->transit))
-                         (resource (ns->path namespace ".cljs.cache.json"))
-                         (resource (ns->path namespace ".cljc.cache.json"))
-                         (first (doall (for [ext [".cljs" ".cljc" "" ".clj"] ;; planck caches don't have file extensions
-                                             [format f] [["edn" (comp ->transit r/read-string)]
-                                                         ["json" identity]]
-                                             :let [path (ns->path namespace (str ext ".cache." format))
-                                                   resource (some-> (resource path) f)]
-                                             :when resource]
-                                         resource)))
-                         (when required? (throw (js/Error (str "Could not find cache for: " namespace)))))
-                     #_prune-cache))))
+             (or (some-> (get-in @repl/st [:cljs.analyzer/namespaces namespace])
+                         realize-lazy-map
+                         (->transit))
+                 (resource (ns->path namespace ".cljs.cache.json"))
+                 (resource (ns->path namespace ".cljc.cache.json"))
+                 (first (doall (for [ext [".cljs" ".cljc" "" ".clj"] ;; planck caches don't have file extensions
+                                     [format f] [["edn" #(try (-> %
+                                                                  (r/read-string)
+                                                                  (->transit))
+                                                              (catch js/Error e
+                                                                (prn :error-parsing-edn-cache e)))]
+                                                 ["json" identity]]
+                                     :let [path (ns->path namespace (str ext ".cache." format))
+                                           resource (some-> (resource path) f)]
+                                     :when resource]
+                                 resource)))
+                 (when required? (throw (js/Error (str "Could not find cache for: " namespace)))))
+             #_prune-cache)))
+
+
 
 (def cache-map
   (memoize (fn [namespace]
@@ -138,9 +145,27 @@
   (apply str (->> (js-files-to-load dep)
                   (map resource))))
 
-(defn macro-str [namespace]
-  (or (resource (ns->path namespace ".clj"))
-      (resource (ns->path namespace ".cljc"))))
+(defn macro-str
+  ;; TODO
+  ;; look up macro resolution algo
+  [namespace]
+  (let [path (string/replace (ns->path namespace) "$macros" "")
+        cljs-clojure-variants (cond (string/starts-with? path "cljs/") [path (string/replace path #"^cljs/" "clojure/")]
+                                    (string/starts-with? path "clojure/") [path (string/replace path #"^clojure/" "cljs/")]
+                                    :else [path])]
+    (first (for [path cljs-clojure-variants
+                 [$macros? ext] [[true "js"]
+                                 [true "clj"]
+                                 [true "cljc"]
+                                 [false "clj"]
+                                 [false "cljc"]]
+                 :let [full-path (str path (when $macros? "$macros") "." ext)
+                       contents (resource full-path)
+                       _ (when (string/includes? path "pprint") (prn full-path))]
+                 :when contents]
+             [ext contents])))
+  #_(or (resource (ns->path namespace ".clj"))
+        (resource (ns->path namespace ".cljc"))))
 
 (defn expose-browser-global
   "Writes contents of map to name in `window`."
@@ -174,13 +199,11 @@
                              ~@(for [[type expr] (seq n)]
                                  `(~type ~@expr)))
                           {:merge true :line 1 :column 1})]
-      (println :planck-require form)
       (cljs.js/eval repl/st form {} #(when-let [e (:error %)] (println "\n\nfailed: " form "\n" e))))))
 
 (defn calculate-deps [dep-spec provided]
   ;; require target deps into Planck for AOT analysis & compilation
   (let [ns-name (symbol (str "temp." (gensym)))]
-
     (planck-require ns-name (->> (for [type [:require :require-macros :import]
                                        expr (get dep-spec type)]
                                    (case type
@@ -191,7 +214,6 @@
                                                         (conj [:require-macros namespace])))))
                                  (apply concat)
                                  (reduce (fn [m [k v]] (update m k (fnil conj #{}) v)) {})))
-
     (as-> (transitive-deps ns-name) deps
           (disj deps 'cljs.env)                             ; read from Planck's analysis cache to get transitive dependencies
           (group-by #(let [provided? (contains? provided %)]
@@ -228,20 +250,25 @@
                          (let [cache (cache-str namespace true)]
                            (cond-> m
                                    cache (assoc (str (ns->path namespace) ".cache.json") cache)))) {} require-cache)
+
         sources (reduce (fn [m namespace]
                           (let [path (ns->path namespace)
-                                source (or (resource (str path ".js")) (throw (js/Error (str "Source not found: " namespace))))
+                                [ext source] (or (if (string/ends-with? path "$macros")
+                                                   (macro-str namespace)
+                                                   ["js" (resource (str path ".js"))])
+                                                 (throw (js/Error (str "Source not found: " namespace))))
                                 cache (cache-str namespace false)]
                             (cond-> m
-                                    source (assoc (str path ".js") source)
+                                    source (assoc (str path "." ext) source)
                                     cache (assoc (str path ".cache.json") cache)))) {} require-source)
 
-        foreign-deps (reduce (fn [m namespace]
-                               (reduce (fn [m file]
-                                         (-> m
-                                             (assoc file (resource file))
-                                             ;; self-host env needs to know namespace->file mappings
-                                             (update :name-to-path merge (js-file-names-index file)))) m (js-files-to-load namespace))) {} require-foreign-dep)
+        foreign-deps (try (reduce (fn [m namespace]
+                                    (reduce (fn [m file]
+                                              (-> m
+                                                  (assoc file (resource file))
+                                                  ;; self-host env needs to know namespace->file mappings
+                                                  (update :name-to-path merge (js-file-names-index file)))) m (js-files-to-load namespace))) {} require-foreign-dep)
+                          (catch js/Error e (prn "Error in foreign deps" e)))
         goog (reduce (fn [m goog-file]
                        (cond-> m
                                (not (contains? provided-goog-files goog-file))
@@ -270,12 +297,12 @@
     (if error
       (println "Error reading standard in" error "\n\n")
       (doseq [[dep-spec provided] (partition 2 (interleave bundles provided-results))]
-        (prn dep-spec)
-        (let [_ (swap! extra-paths conj (str user-dir "/" cljsbuild-out))
-              bundle-spec (calculate-deps dep-spec provided)
+        (set! out-path (str user-dir "/" cljsbuild-out))
+        (let [bundle-spec (calculate-deps dep-spec provided)
               deps (assoc (bundle-deps bundle-spec) :provided (vec (sort provided)))
               js-string (js/JSON.stringify (clj->js deps))
               out-path (str (path-join user-dir output-dir (-> (:name dep-spec) name munge)) ".json")]
+
           (spit out-path js-string)
           (println "Bundle " (:name dep-spec) ":\n")
           (pprint (reduce-kv (fn [m k v] (assoc m k (set v))) {} (dissoc bundle-spec :provided-goog)))
