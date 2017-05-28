@@ -135,9 +135,10 @@
                                          (try (cljs/eval c-state form (merge (c-opts c-state c-env) opts) (partial swap! result merge))
                                               (catch js/Error e (swap! result assoc :error e))))
                                        @result))]
-     (when (and ns (not= ns (:ns @c-env)))
+     (when (and (some? ns) (not= ns (:ns @c-env)))
        (swap! c-env assoc :ns ns))
      result)))
+
 
 (defn read-src
   "Read src using default tools.reader. If an error is encountered,
