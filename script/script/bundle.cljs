@@ -85,7 +85,8 @@
                                            resource (some-> (resource path) f)]
                                      :when resource]
                                  resource)))
-                 (when required? (throw (js/Error (str "Could not find cache for: " namespace)))))
+                 (when required?
+                   (throw (js/Error (str "Could not find cache for: " namespace)))))
              #_prune-cache)))
 
 
@@ -160,8 +161,7 @@
                                  [false "clj"]
                                  [false "cljc"]]
                  :let [full-path (str path (when $macros? "$macros") "." ext)
-                       contents (resource full-path)
-                       _ (when (string/includes? path "pprint") (prn full-path))]
+                       contents (resource full-path)]
                  :when contents]
              [ext contents])))
   #_(or (resource (ns->path namespace ".clj"))
