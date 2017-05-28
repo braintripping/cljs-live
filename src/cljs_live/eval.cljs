@@ -85,69 +85,50 @@
               (symbol (str ns "$macros"))))))
 
 (defspecial ns
-  "Wrap ns statements to include :ns key in result.
-  (May become unnecessary if cljs.js/eval returns :ns in result.)"
-  [c-state c-env body]
-  (let [result (eval c-state c-env (with-meta body {:skip-repl-special true}))]
-    (cond-> result
-            (contains? result :value) (assoc :ns (second body)))))
+            "Wrap ns statements to include :ns key in result.
+            (May become unnecessary if cljs.js/eval returns :ns in result.)"
+            [c-state c-env & body]
+            (let [result (eval c-state c-env (with-meta (cons 'ns body) {::skip-repl-special true}))]
+              (cond-> result
+                      (contains? result :value) (assoc :ns (first body)))))
 
 (defspecial in-ns
-  "Switch to a different namespace"
-  [c-state c-env [_ ns]]
-  (when-not (symbol? ns) (throw (js/Error. "`in-ns` must be passed a symbol.")))
-  (ensure-ns c-state c-env ns)
-  (swap! c-env assoc :ns ns)
-  {:value nil
-   :ns    ns})
+            "Switch to a different namespace"
+            [c-state c-env ns]
+            (when-not (symbol? ns) (throw (js/Error. "`in-ns` must be passed a symbol.")))
+            (ensure-ns c-state c-env ns)
+            (swap! c-env assoc :ns ns)
+            {:value nil
+             :ns    ns})
 
 (defspecial with-ns
-  "Execute body within temp-ns namespace, then return to previous namespace. Create namespace if it doesn't exist."
-  [c-state c-env [_ temp-ns & body]]
-  (ensure-ns c-state c-env temp-ns)
-  (let [ns (:ns @c-env)
-        _ (swap! c-env assoc :ns temp-ns)
-        result (eval-forms c-state c-env body)]
-    (swap! c-env assoc :ns ns)
-    result))
+            "Execute body within temp-ns namespace, then return to previous namespace. Create namespace if it doesn't exist."
+            [c-state c-env temp-ns & body]
+            (ensure-ns c-state c-env temp-ns)
+            (let [ns (:ns @c-env)
+                  _ (swap! c-env assoc :ns temp-ns)
+                  result (eval-forms c-state c-env body)]
+              (swap! c-env assoc :ns ns)
+              result))
 
 (defspecial doc
-  "Show doc for symbol"
-  [c-state c-env [_ n]]
-  (let [[namespace name] (let [n (resolve-symbol n)]
-                           (map symbol [(namespace n) (name n)]))]
-    {:value
-     (with-out-str
-       (some-> (get-in @c-state [:cljs.analyzer/namespaces namespace :defs name])
-               (select-keys [:name :doc :arglists])
-               print-doc)
-       "Not found")}))
-
-(defspecial defmacro
-  "Wraps defmacro to return a var, like def*"
-  [c-state c-env body]
-  (let [ns (->macro-sym (:ns @c-env))
-        result (eval c-state c-env (with-meta body {:skip-repl-special true}) {:macros-ns true :ns ns})]
-    (if (true? (get result :value))
-      (eval c-state c-env `(~'var ~(symbol ns (second body))))
-      result)))
-
-
+            "Show doc for symbol"
+            [c-state c-env name]
+            (let [[namespace name] (let [name (resolve-symbol name)]
+                                     (map symbol [(namespace name) (clojure.core/name name)]))]
+              {:value
+               (with-out-str
+                 (some-> (get-in @c-state [:cljs.analyzer/namespaces namespace :defs name])
+                         (select-keys [:name :doc :arglists])
+                         print-doc)
+                 "Not found")}))
 
 (defn repl-special [c-state c-env body]
-  (when-let [f (get repl-specials (first body))]
-    (when-not (contains? (meta body) :skip-repl-special)
-      (try (f c-state c-env body)
-           (catch js/Error e {:error e})))))
-
-(defn refer-var
-  "Refer a var into its (non)-macro namespace. Note that `defmacro` emits a var in this repl."
-  [c-state var]
-  (let [{:keys [ns name macro]} (meta var)]
-    (swap! c-state update-in [:cljs.analyzer/namespaces (toggle-macros-ns ns)]
-           #(-> %
-                (assoc-in [(if macro :use-macros :uses) name] ns)
-                (assoc-in [(if macro :require-macros :requires) ns] ns)))))
+  (when (not (::skip-repl-special (meta body)))
+    (when-let [f (get repl-specials (first body))]
+      (when-not (contains? (meta body) ::skip-repl-special)
+        (try (f c-state c-env body)
+             (catch js/Error e {:error e}))))))
 
 (defn warning-handler
   "Collect warnings in a dynamic var"
@@ -174,9 +155,6 @@
 
      (when (and (contains? result :ns) (not= ns (:ns @c-env)))
        (swap! c-env assoc :ns ns))
-
-     (when (and (contains? result :value) (var? value))
-       (refer-var c-state value))
 
      result)))
 
