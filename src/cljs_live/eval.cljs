@@ -67,13 +67,11 @@
 
 (declare eval eval-forms)
 
-(defn ensure-ns
+(defn ensure-ns!
   "Create namespace if it doesn't exist"
   [c-state c-env ns]
   (when-not (contains? (get @c-state :cljs.analyzer/namespaces) ns)
-    (let [prev-ns (:ns @c-env)]
-      (eval c-state c-env `(~'ns ~ns))
-      (swap! c-env assoc :ns prev-ns))))
+    (eval c-state c-env `(~'ns ~ns))))
 
 (defn ->macro-sym [sym]
   (let [ns? (namespace sym)
@@ -84,44 +82,30 @@
       (if ns? (symbol (str ns "$macros") name)
               (symbol (str ns "$macros"))))))
 
-(defspecial ns
-            "Wrap ns statements to include :ns key in result.
-            (May become unnecessary if cljs.js/eval returns :ns in result.)"
-            [c-state c-env & body]
-            (let [result (eval c-state c-env (with-meta (cons 'ns body) {::skip-repl-special true}))]
-              (cond-> result
-                      (contains? result :value) (assoc :ns (first body)))))
-
 (defspecial in-ns
-            "Switch to a different namespace"
-            [c-state c-env ns]
-            (when-not (symbol? ns) (throw (js/Error. "`in-ns` must be passed a symbol.")))
-            (ensure-ns c-state c-env ns)
-            (swap! c-env assoc :ns ns)
-            {:value nil
-             :ns    ns})
+  "Switch to namespace"
+  [c-state c-env namespace]
+  (when-not (symbol? namespace) (throw (js/Error. "`in-ns` must be passed a symbol.")))
+  (if (contains? (get @c-state :cljs.analyzer/namespaces) namespace)
+    {:ns namespace}
+    (eval c-state c-env `(~'ns ~namespace))))
 
-(defspecial with-ns
-            "Execute body within temp-ns namespace, then return to previous namespace. Create namespace if it doesn't exist."
-            [c-state c-env temp-ns & body]
-            (ensure-ns c-state c-env temp-ns)
-            (let [ns (:ns @c-env)
-                  _ (swap! c-env assoc :ns temp-ns)
-                  result (eval-forms c-state c-env body)]
-              (swap! c-env assoc :ns ns)
-              result))
+(defspecial ns
+  "Wraps `ns` to return :ns in result map"
+  [c-state c-env & body]
+  (-> (eval c-state c-env (with-meta (cons 'ns body) {::skip-repl-special true}))
+      (assoc :ns (first body))))
 
 (defspecial doc
-            "Show doc for symbol"
-            [c-state c-env name]
-            (let [[namespace name] (let [name (resolve-symbol name)]
-                                     (map symbol [(namespace name) (clojure.core/name name)]))]
-              {:value
-               (with-out-str
-                 (some-> (get-in @c-state [:cljs.analyzer/namespaces namespace :defs name])
-                         (select-keys [:name :doc :arglists])
-                         print-doc)
-                 "Not found")}))
+  "Show doc for symbol"
+  [c-state c-env name]
+  (let [[namespace name] (let [name (resolve-symbol name)]
+                           (map symbol [(namespace name) (clojure.core/name name)]))]
+    {:value (with-out-str
+              (some-> (get-in @c-state [:cljs.analyzer/namespaces namespace :defs name])
+                      (select-keys [:name :doc :arglists])
+                      print-doc)
+              "Not found")}))
 
 (defn repl-special [c-state c-env body]
   (when (not (::skip-repl-special (meta body)))
@@ -144,18 +128,15 @@
   ([form] (eval c-state c-env form))
   ([c-state c-env form] (eval c-state c-env form {}))
   ([c-state c-env form opts]
-   (let [is-seq? (seq? form)
-         {:keys [value ns] :as result} (or (and is-seq? (repl-special c-state c-env form))
-                                           (let [result (atom)]
-                                             (binding [*cljs-warning-handlers* [(partial warning-handler form)]
-                                                       r/*data-readers* (conj r/*data-readers* {'js identity})]
-                                               (try (cljs/eval c-state form (merge (c-opts c-state c-env) opts) (partial swap! result merge))
-                                                    (catch js/Error e (swap! result assoc :error e))))
-                                             @result))]
-
-     (when (and (contains? result :ns) (not= ns (:ns @c-env)))
+   (let [{:keys [ns] :as result} (or (and (seq? form) (repl-special c-state c-env form))
+                                     (let [result (atom)]
+                                       (binding [*cljs-warning-handlers* [(partial warning-handler form)]
+                                                 r/*data-readers* (conj r/*data-readers* {'js identity})]
+                                         (try (cljs/eval c-state form (merge (c-opts c-state c-env) opts) (partial swap! result merge))
+                                              (catch js/Error e (swap! result assoc :error e))))
+                                       @result))]
+     (when (and ns (not= ns (:ns @c-env)))
        (swap! c-env assoc :ns ns))
-
      result)))
 
 (defn read-src
