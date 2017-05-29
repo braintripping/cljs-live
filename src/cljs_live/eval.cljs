@@ -117,18 +117,19 @@
                      start-col  :column}]
   (if-not start-line
     target
-    (cond-> (update target :line + (dec start-line))
-            (= target-line start-line) (update :column + (dec start-col)))))
+    (cond-> (update target :line + start-line)
+            (= target-line start-line) (update :column + start-col))))
 
 (defn warning-handler
   "Collect warnings in a dynamic var"
   [form source warning-type env extra]
   (some-> *cljs-warnings*
-          (swap! conj {:type        warning-type
-                       :env         (relative-pos env (when (satisfies? IMeta form) (meta form)))
-                       :extra       extra
-                       :source      source
-                       :source-form form})))
+          (swap! conj {:type   warning-type
+                       :env    (relative-pos (dec-pos env) (when (satisfies? IMeta form) (some-> (meta form)
+                                                                                                 (dec-pos))))
+                       :extra  extra
+                       :source source
+                       :form   form})))
 
 (defn cljs-location [error form source-map]
   (let [[line column] (->> (re-find #"<anonymous>:(\d+)(?::(\d+))" (.-stack error))
@@ -142,8 +143,8 @@
                                (last)
                                (second)
                                (last))]
-    {:line   (inc line)
-     :column (inc col)}))
+    {:line   line
+     :column col}))
 
 (defn eval
   "Eval a single form, keeping track of current ns in c-env"
@@ -151,7 +152,7 @@
   ([c-state c-env form] (eval c-state c-env form {}))
   ([c-state c-env form opts]
    (let [opts (merge (c-opts c-state c-env) opts)
-         {:keys [source] :as start-pos} (when (satisfies? IMeta form) (meta form))
+         {:keys [source] :as start-pos} (when (satisfies? IMeta form) (some-> (meta form) (dec-pos)))
          {:keys [ns] :as result} (or (and (seq? form) (repl-special c-state c-env form))
                                      (let [result (atom)
                                            cb (partial swap! result merge)]
@@ -167,6 +168,7 @@
                                                                          :error-location (some-> (ex-cause error)
                                                                                                  (ex-data)
                                                                                                  (select-keys [:line :column])
+                                                                                                 (dec-pos)
                                                                                                  (relative-pos start-pos))}
                                                                         (-> (try {:value (js/eval js-source)}
                                                                                  (catch js/Error e {:error          e
