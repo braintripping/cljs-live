@@ -131,7 +131,7 @@
                        :source source
                        :form   form})))
 
-(defn cljs-location [error form source-map]
+(defn cljs-location [error source-map]
   (let [[line column] (->> (re-find #"<anonymous>:(\d+)(?::(\d+))" (.-stack error))
                            (rest)
                            (map js/parseInt))
@@ -172,7 +172,7 @@
                                                                                                  (relative-pos start-pos))}
                                                                         (-> (try {:value (js/eval js-source)}
                                                                                  (catch js/Error e {:error          e
-                                                                                                    :error-location (-> (cljs-location e form source-map)
+                                                                                                    :error-location (-> (cljs-location e source-map)
                                                                                                                         (relative-pos start-pos))}))
                                                                             (merge {:compiled-js js-source
                                                                                     :source-map  source-map})))
