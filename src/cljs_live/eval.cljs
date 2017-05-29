@@ -5,7 +5,9 @@
             [cljs-live.compiler :as c]
             [cljs.repl :refer [print-doc]]
             [cljs.tools.reader.reader-types :as rt]
-            [clojure.string :as string])
+            [clojure.string :as string]
+            [goog.crypt.base64 :as base64]
+            [cljs.source-map :as sm])
   (:require-macros [cljs-live.eval :refer [defspecial]]))
 
 (def ^:dynamic *cljs-warnings* nil)
@@ -33,17 +35,6 @@
    :context       :expr
    :source-map    true
    :def-emits-var true})
-
-(defn read-string-indexed
-  "Read string using indexing-push-back-reader, for errors with location information."
-  [s]
-  (when (and s (not= "" s))
-    (let [reader (rt/indexing-push-back-reader s)]
-      (loop [forms []]
-        (let [form (r/read {:eof ::eof} reader)]
-          (if (= form ::eof)
-            forms
-            (recur (conj forms form))))))))
 
 (defn get-ns [c-state ns] (get-in @c-state [:cljs.analyzer/namespaces ns]))
 
@@ -114,36 +105,95 @@
         (try (f c-state c-env body)
              (catch js/Error e {:error e}))))))
 
+(defn dec-pos [{:keys [line column] :as pos}]
+  (assoc pos
+    :line (dec line)
+    :column (dec column)))
+
+(defn relative-pos [{target-line   :line
+                     target-column :column
+                     :as           target}
+                    {start-line :line
+                     start-col  :column}]
+  (if-not start-line
+    target
+    (cond-> (update target :line + (dec start-line))
+            (= target-line start-line) (update :column + (dec start-col)))))
+
 (defn warning-handler
   "Collect warnings in a dynamic var"
-  [form warning-type env extra]
+  [form source warning-type env extra]
   (some-> *cljs-warnings*
           (swap! conj {:type        warning-type
-                       :env         env
+                       :env         (relative-pos env (when (satisfies? IMeta form) (meta form)))
                        :extra       extra
+                       :source      source
                        :source-form form})))
+
+(defn cljs-location [error form source-map]
+  (let [[line column] (->> (re-find #"<anonymous>:(\d+)(?::(\d+))" (.-stack error))
+                           (rest)
+                           (map js/parseInt))
+        source-map (-> (base64/decodeString source-map)
+                       (js/JSON.parse)
+                       (sm/decode))
+        {:keys [line col]} (-> (get source-map (dec line))
+                               (subseq <= column)
+                               (last)
+                               (second)
+                               (last))]
+    {:line   (inc line)
+     :column (inc col)}))
 
 (defn eval
   "Eval a single form, keeping track of current ns in c-env"
   ([form] (eval c-state c-env form))
   ([c-state c-env form] (eval c-state c-env form {}))
   ([c-state c-env form opts]
-   (let [{:keys [ns] :as result} (or (and (seq? form) (repl-special c-state c-env form))
-                                     (let [result (atom)]
-                                       (binding [*cljs-warning-handlers* [(partial warning-handler form)]
+   (let [opts (merge (c-opts c-state c-env) opts)
+         {:keys [source] :as start-pos} (when (satisfies? IMeta form) (meta form))
+         {:keys [ns] :as result} (or (and (seq? form) (repl-special c-state c-env form))
+                                     (let [result (atom)
+                                           cb (partial swap! result merge)]
+                                       (binding [*cljs-warning-handlers* [(partial warning-handler form source)]
                                                  r/*data-readers* (conj r/*data-readers* {'js identity})]
-                                         (try (cljs/eval c-state form (merge (c-opts c-state c-env) opts) (partial swap! result merge))
-                                              (catch js/Error e (swap! result assoc :error e))))
+                                         (if source
+                                           (cljs/compile-str c-state source "user_cljs" opts
+                                                             (fn [{error       :error
+                                                                   compiled-js :value}]
+                                                               (let [[js-source source-map] (clojure.string/split compiled-js #"\n//#\ssourceURL[^;]+;base64,")]
+                                                                 (->> (if error
+                                                                        {:error          error
+                                                                         :error-location (some-> (ex-cause error)
+                                                                                                 (ex-data)
+                                                                                                 (select-keys [:line :column])
+                                                                                                 (relative-pos start-pos))}
+                                                                        (-> (try {:value (js/eval js-source)}
+                                                                                 (catch js/Error e {:error          e
+                                                                                                    :error-location (-> (cljs-location e form source-map)
+                                                                                                                        (relative-pos start-pos))}))
+                                                                            (merge {:compiled-js js-source
+                                                                                    :source-map  source-map})))
+                                                                      (reset! result)))))
+                                           (cljs/eval c-state form opts cb)))
                                        @result))]
      (when (and (some? ns) (not= ns (:ns @c-env)))
        (swap! c-env assoc :ns ns))
      result)))
 
+(defn read-string-indexed
+  "Read string using indexing-push-back-reader, for errors with location information."
+  [s]
+  (when (and s (not= "" s))
+    (let [reader (rt/source-logging-push-back-reader s)]
+      (loop [forms []]
+        (let [form (r/read {:eof ::eof} reader)]
+          (if (= form ::eof)
+            forms
+            (recur (conj forms form))))))))
 
 (defn read-src
-  "Read src using default tools.reader. If an error is encountered,
-  re-read an unwrapped version of src using indexed reader to return
-  a correct error location."
+  "Read src using indexed reader."
   [c-state c-env src]
   (binding [r/resolve-symbol #(resolve-symbol c-state c-env %)
             r/*data-readers* (conj r/*data-readers* {'js identity})]
