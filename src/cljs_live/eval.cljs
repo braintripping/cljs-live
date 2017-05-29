@@ -105,7 +105,9 @@
         (try (f c-state c-env body)
              (catch js/Error e {:error e}))))))
 
-(defn dec-pos [{:keys [line column] :as pos}]
+(defn dec-pos
+  "Position information from the ClojureScript reader is 1-indexed - decrement line and column."
+  [{:keys [line column] :as pos}]
   (assoc pos
     :line (dec line)
     :column (dec column)))
