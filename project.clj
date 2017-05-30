@@ -9,9 +9,7 @@
                  [org.clojure/clojurescript "1.9.542"]
 
                  [com.cognitect/transit-cljs "0.8.239"]
-                 [alembic "0.3.2"]
-
-                 ]
+                 [alembic "0.3.2"]]
 
   :cljsbuild {:builds []}
 

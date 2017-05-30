@@ -99,11 +99,11 @@
               "Not found")}))
 
 (defn repl-special [c-state c-env body]
-  (when (not (::skip-repl-special (meta body)))
-    (when-let [f (get repl-specials (first body))]
-      (when-not (contains? (meta body) ::skip-repl-special)
-        (try (f c-state c-env body)
-             (catch js/Error e {:error e}))))))
+  (let [f (get repl-specials (first body))]
+    (try (f c-state c-env body)
+         (catch js/Error e
+           (prn "repl-special error" e)
+           {:error e}))))
 
 (defn dec-pos
   "Position information from the ClojureScript reader is 1-indexed - decrement line and column."
@@ -153,34 +153,38 @@
   ([form] (eval c-state c-env form))
   ([c-state c-env form] (eval c-state c-env form {}))
   ([c-state c-env form opts]
-   (let [opts (merge (c-opts c-state c-env) opts)
+   (let [repl-special? (and (seq? form)
+                            (contains? repl-specials (first form))
+                            (not (::skip-repl-special (meta form))))
+         opts (merge (c-opts c-state c-env) opts)
          {:keys [source] :as start-pos} (when (satisfies? IMeta form) (some-> (meta form) (dec-pos)))
-         {:keys [ns] :as result} (or (and (seq? form) (repl-special c-state c-env form))
-                                     (let [result (atom)
-                                           cb (partial swap! result merge)]
-                                       (binding [*cljs-warning-handlers* [(partial warning-handler form source)]
-                                                 r/*data-readers* (conj r/*data-readers* {'js identity})]
-                                         (if source
-                                           (cljs/compile-str c-state source "user_cljs" opts
-                                                             (fn [{error       :error
-                                                                   compiled-js :value}]
-                                                               (let [[js-source source-map] (clojure.string/split compiled-js #"\n//#\ssourceURL[^;]+;base64,")]
-                                                                 (->> (if error
-                                                                        {:error          error
-                                                                         :error-location (some-> (ex-cause error)
-                                                                                                 (ex-data)
-                                                                                                 (select-keys [:line :column])
-                                                                                                 (dec-pos)
-                                                                                                 (relative-pos start-pos))}
-                                                                        (-> (try {:value (js/eval js-source)}
-                                                                                 (catch js/Error e {:error          e
-                                                                                                    :error-location (-> (cljs-location e source-map)
-                                                                                                                        (relative-pos start-pos))}))
-                                                                            (merge {:compiled-js js-source
-                                                                                    :source-map  source-map})))
-                                                                      (reset! result)))))
-                                           (cljs/eval c-state form opts cb)))
-                                       @result))]
+         {:keys [ns] :as result} (if repl-special?
+                                   (repl-special c-state c-env form)
+                                   (let [result (atom)
+                                         cb (partial swap! result merge)]
+                                     (binding [*cljs-warning-handlers* [(partial warning-handler form source)]
+                                               r/*data-readers* (conj r/*data-readers* {'js identity})]
+                                       (if source
+                                         (cljs/compile-str c-state source "user_cljs" opts
+                                                           (fn [{error       :error
+                                                                 compiled-js :value}]
+                                                             (let [[js-source source-map] (clojure.string/split compiled-js #"\n//#\ssourceURL[^;]+;base64,")]
+                                                               (->> (if error
+                                                                      {:error          error
+                                                                       :error-location (some-> (ex-cause error)
+                                                                                               (ex-data)
+                                                                                               (select-keys [:line :column])
+                                                                                               (dec-pos)
+                                                                                               (relative-pos start-pos))}
+                                                                      (-> (try {:value (js/eval js-source)}
+                                                                               (catch js/Error e {:error          e
+                                                                                                  :error-location (-> (cljs-location e source-map)
+                                                                                                                      (relative-pos start-pos))}))
+                                                                          (merge {:compiled-js js-source
+                                                                                  :source-map  source-map})))
+                                                                    (reset! result)))))
+                                         (cljs/eval c-state form opts cb)))
+                                     @result))]
      (when (and (some? ns) (not= ns (:ns @c-env)))
        (swap! c-env assoc :ns ns))
      result)))
