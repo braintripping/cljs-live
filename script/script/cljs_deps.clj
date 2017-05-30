@@ -53,10 +53,11 @@
                                          (doseq [s source-paths]
                                            (compile-cljs s cljsbuild-out))
                                          (transitive-deps provided))))}
-                    (catch Exception e {:error e}))]
+                    (catch Exception e {:error e}))
+      classpath (time (->> (map :jar (alembic.still/dependency-jars))
+                           (string/join ":")))]
   (println (str "__BEGIN_CLASSPATH__"
-                (->> (map :jar (alembic.still/dependency-jars))
-                     (string/join ":"))
+                classpath
                 "__END_CLASSPATH__"))
   (prn provides))
 

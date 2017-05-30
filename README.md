@@ -1,26 +1,27 @@
-# ClojureScript Self-Host Bundler
+# cljs-live
 
-//\\//\\//\\//\\//\\
+CLJS Live includes a dependency bundler for self-hosted ClojureScript, and helper utilities for using the bundles with the compiler.
 
-Warning: alpha, depends on implementation details of specific versions of ClojureScript and Planck.
+ALPHA
 
-\\//\\//\\//\\//\\//
+### Example
 
-Bundle ClojureScript code for live evaluation in the browser.
+https://cljs-live.firebaseapp.com
 
-Example: https://cljs-live.firebaseapp.com
-
-**Status:** Alpha
-
-**Requirements:**
+### Requirements:
 
 - [Planck REPL](planck-repl.org)
 - Clojure
 - Alembic (in `~/.lein/profiles.clj`)
 
-**Goal**
 
-Given a map containing `ns` requirement expressions (`:require, :require-macros, :import`), and the entry namespace of the compiled ClojureScript app (`:provided`), **cljs-live** should calculate and bundle the minimal set of compiled source files and analysis caches, and help load them into the compiler state.
+### Warning
+
+This code depends on implementation details of specific versions of ClojureScript and Planck and is not for the faint of heart.
+
+### Goal
+
+Given a map containing `ns`-style requirement expressions (`:require, :require-macros, :import`), and the entry namespace of the compiled ClojureScript app (`:provided`), **cljs-live** should calculate and bundle the minimal set of compiled source files and analysis caches, and provide a utility to read these bundles into the compiler state.
 
 ### Usage
 
@@ -42,9 +43,14 @@ Given a map containing `ns` requirement expressions (`:require, :require-macros,
 }]
 ```
 
-Note the `:cljsbuild-out` key. This should correspond to the `:output-dir` in your cljsbuild options. Make sure that these options also include `:cache-analysis true` (see the [example cljsbuild options](https://github.com/mhuebert/cljs-live/blob/master/script/build_example.clj)). Make sure that you have run a build and left this `out` folder intact before running this script.
+**Note the `:cljsbuild-out` key.**
+- This should correspond to the `:output-dir` in the compiler options for your build.
+- Make sure that compiler options include `:cache-analysis true` (see the [example cljsbuild options](https://github.com/mhuebert/cljs-live/blob/master/script/build_example.clj)).
+- Make sure that you have run a build and left this `out` folder intact before running this script.
 
-- Run `bundle.sh live-deps.clj`. This should write a bundle of javascript source files and analysis caches to the `:output-to` path, which you can include on a webpage and use in tandem with the `load-fn` in `cljs-live.compiler`.
+**Run `bundle.sh live-deps.clj`.**
+- This should write a bundle of javascript source files and analysis caches to the `:output-to` path, which you can include on a webpage.
+- Use the `load-fn` in `cljs-live.compiler` to read from the bundle.
 
 ## Modifying the bundle
 

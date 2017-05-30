@@ -1,10 +1,11 @@
 (ns cljs-live.eval
   (:require [cljs.js :as cljs]
             [cljs.tools.reader :as r]
+            [cljs.tools.reader.reader-types :as rt]
             [cljs.analyzer :refer [*cljs-warning-handlers*]]
             [cljs-live.compiler :as c]
             [cljs.repl :refer [print-doc]]
-            [cljs.tools.reader.reader-types :as rt]
+
             [clojure.string :as string]
             [goog.crypt.base64 :as base64]
             [cljs.source-map :as sm])
@@ -157,7 +158,8 @@
                             (contains? repl-specials (first form))
                             (not (::skip-repl-special (meta form))))
          opts (merge (c-opts c-state c-env) opts)
-         {:keys [source] :as start-pos} (when (satisfies? IMeta form) (some-> (meta form) (dec-pos)))
+         {:keys [source] :as start-pos} (when (satisfies? IMeta form)
+                                          (some-> (meta form) (dec-pos)))
          {:keys [ns] :as result} (if repl-special?
                                    (repl-special c-state c-env form)
                                    (let [result (atom)
@@ -200,15 +202,6 @@
             forms
             (recur (conj forms form))))))))
 
-(defn read-src
-  "Read src using indexed reader."
-  [c-state c-env src]
-  (binding [r/resolve-symbol #(resolve-symbol c-state c-env %)
-            r/*data-readers* (conj r/*data-readers* {'js identity})]
-    (try {:value (read-string-indexed src)}
-         (catch js/Error e
-           {:error e}))))
-
 (defn eval-forms
   "Eval a list of forms"
   [c-state c-env forms]
@@ -219,6 +212,15 @@
         (if (or error (empty? remaining))
           (assoc result :warnings @*cljs-warnings*)
           (recur remaining))))))
+
+(defn read-src
+  "Read src using indexed reader."
+  [c-state c-env src]
+  (binding [r/resolve-symbol #(resolve-symbol c-state c-env %)
+            r/*data-readers* (conj r/*data-readers* {'js identity})]
+    (try {:value (read-string-indexed src)}
+         (catch js/Error e
+           {:error e}))))
 
 (defn eval-str
   "Eval string by first reading all top-level forms, then eval'ing them one at a time."

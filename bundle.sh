@@ -9,8 +9,13 @@ mkdir -p $CACHE_DIR;
 
 PROVIDED=$(java -cp $USER_CLASSPATH clojure.main $SCRIPT_DIR'/cljs_deps.clj' --deps $USER_DIR'/'$1)
 
-re=".*__BEGIN_CLASSPATH__(.*)__END_CLASSPATH__(.*)"
-[[ $PROVIDED =~ $re ]] && cp="${BASH_REMATCH[1]}" && provided="${BASH_REMATCH[2]}"
+re="(.*)__BEGIN_CLASSPATH__(.*)__END_CLASSPATH__(.*)"
+
+
+
+[[ $PROVIDED =~ $re ]] && cp="${BASH_REMATCH[2]}" && provided="${BASH_REMATCH[3]}"
+
+echo "${BASH_REMATCH[1]}";
 
 cd $SCRIPT_DIR;
 
