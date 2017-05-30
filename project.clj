@@ -6,7 +6,7 @@
   :min-lein-version "2.7.1"
 
   :dependencies [[org.clojure/clojure "1.9.0-alpha16"]
-                 [org.clojure/clojurescript "1.9.542"]
+                 [org.clojure/clojurescript "1.9.562"]
 
                  [com.cognitect/transit-cljs "0.8.239"]
                  [alembic "0.3.2"]]

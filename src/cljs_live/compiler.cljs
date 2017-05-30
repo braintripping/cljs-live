@@ -83,32 +83,30 @@
 (defn load-fn
   "Load requirements from bundled deps"
   [c-state {:keys [path macros name]} cb]
-
   (let [path (cond-> path
                      macros (str "$macros"))
         name (if-not macros name
                             (symbol (str name "$macros")))
         js-provided? (is-provided (munge (str name)))
         c-state-provided? (contains? (get-in @c-state [::loaded]) name)]
-    (when-not (= name 'cljs.env)
-      (swap! c-state update ::loaded (fnil conj #{}) name)
-      (cb (if (and (*loaded-libs* (str name)) c-state-provided?)
-            blank-result
-            (let [[source lang] (when-not js-provided?
-                                  (or (some-> (get @cljs-cache (get-in @cljs-cache ["name-to-path" (munge (str name))] (str path ".js")))
-                                              (list :js))
-                                      (some-> (get @cljs-cache (str path ".clj"))
-                                              (list :clj))))
-                  cache (some-> (get @cljs-cache (str path ".cache.json")) (transit-json->cljs))
-                  result (cond-> blank-result
-                                 cache (merge {:cache cache})
-                                 source (merge {:source source
-                                                :lang   lang}))]
-              (when (or cache source)
-                (set! *loaded-libs* (conj *loaded-libs* (str name))))
-              (log [(if (boolean source) "source" "      ")
-                    (if (boolean cache) "cache" "     ")] name)
-              result))))))
+    (swap! c-state update ::loaded (fnil conj #{}) name)
+    (cb (if (and (*loaded-libs* (str name)) c-state-provided?)
+          blank-result
+          (let [[source lang] (when-not js-provided?
+                                (or (some-> (get @cljs-cache (get-in @cljs-cache ["name-to-path" (munge (str name))] (str path ".js")))
+                                            (list :js))
+                                    (some-> (get @cljs-cache (str path ".clj"))
+                                            (list :clj))))
+                cache (some-> (get @cljs-cache (str path ".cache.json")) (transit-json->cljs))
+                result (cond-> blank-result
+                               cache (merge {:cache cache})
+                               source (merge {:source source
+                                              :lang   lang}))]
+            (when (or cache source)
+              (set! *loaded-libs* (conj *loaded-libs* (str name))))
+            (log [(if (boolean source) "source" "      ")
+                  (if (boolean cache) "cache" "     ")] name)
+            result)))))
 
 (defn get-json [path cb]
   (xhr/send path
