@@ -145,6 +145,19 @@
 (defn foreign-lib-src [dep]
   (apply str (->> (js-files-to-load dep)
                   (map resource))))
+;
+;(and (= name 'cljs.env.macros) macros)
+;(and (= name 'cljs.analyzer.macros) macros)
+;(and (= name 'cljs.compiler.macros) macros)
+;(and (= name 'cljs.js) macros)
+;(and (= name 'cljs.pprint) macros)
+;(and (= name 'cljs.reader) macros)
+;(and (= name 'cljs.tools.reader.reader-types) macros)
+
+(defn compile-str [namespace source]
+  (let [res (atom nil)
+        _ (cljs.js/compile-str repl/st source (str "macro-compile-" namespace) #(reset! res %))]
+    @res))
 
 (defn macro-str
   ;; TODO
@@ -162,7 +175,12 @@
                                  [false "cljc"]]
                  :let [full-path (str path (when $macros? "$macros") "." ext)
                        contents (resource full-path)]
-                 :when contents]
+                 :when contents
+                 :let [[ext contents] (or (when (not= "js" ext)
+                                            (let [{:keys [value]} (compile-str namespace contents)]
+                                              (when value
+                                                ["js" value])))
+                                          [ext contents])]]
              [ext contents])))
   #_(or (resource (ns->path namespace ".clj"))
         (resource (ns->path namespace ".cljc"))))

@@ -141,11 +141,11 @@
         source-map (-> (base64/decodeString source-map)
                        (js/JSON.parse)
                        (sm/decode))
-        {:keys [line col]} (-> (get source-map (dec line))
-                               (subseq <= column)
-                               (last)
-                               (second)
-                               (last))]
+        {:keys [line col]} (some-> (get source-map (dec line))
+                                   (subseq <= column)
+                                   (last)
+                                   (second)
+                                   (last))]
     {:line   line
      :column col}))
 
