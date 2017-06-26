@@ -1,4 +1,4 @@
-(defproject cljs-live "0.1.19"
+(defproject cljs-live "0.1.20-SNAPSHOT"
   :description "Tools for bunding dependencies for self-hosted ClojureScript"
   :url "https://github.com/mhuebert/cljs-live"
   :license {:name "Eclipse Public License"
