@@ -134,11 +134,15 @@
                        :source source
                        :form   form})))
 
-(defn cljs-location [error source-map]
+(defn error-position [error]
   (let [[line column] (->> (re-find #"<anonymous>:(\d+)(?::(\d+))" (.-stack error))
                            (rest)
-                           (map js/parseInt))
-        source-map (-> (base64/decodeString source-map)
+                           (map js/parseInt))]
+    {:line   line
+     :column column}))
+
+(defn mapped-cljs-position [{:keys [line column]} source-map]
+  (let [source-map (-> (base64/decodeString source-map)
                        (js/JSON.parse)
                        (sm/decode))
         {:keys [line col]} (some-> (get source-map (dec line))
@@ -157,6 +161,7 @@
    (let [repl-special? (and (seq? form)
                             (contains? repl-specials (first form))
                             (not (::skip-repl-special (meta form))))
+         env @c-env
          opts (merge (c-opts c-state c-env) opts)
          {:keys [source] :as start-pos} (when (satisfies? IMeta form)
                                           (some-> (meta form) (dec-pos)))
@@ -184,10 +189,13 @@
                                                                                                  (relative-pos start-pos))}
                                                                         (-> (try {:value (js/eval js-source)}
                                                                                  (catch js/Error e {:error          e
-                                                                                                    :error-location (-> (cljs-location e source-map)
+                                                                                                    :error-location (-> (error-position e)
+                                                                                                                        (mapped-cljs-position source-map)
                                                                                                                         (relative-pos start-pos))}))
                                                                             (merge {:compiled-js js-source
-                                                                                    :source-map  source-map})))
+                                                                                    :source      source
+                                                                                    :source-map  source-map
+                                                                                    :env         env})))
                                                                       (reset! result))))))
                                          (cljs/eval c-state form opts cb)))
                                      @result))]

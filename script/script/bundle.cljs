@@ -3,6 +3,8 @@
   (:require [planck.core :refer [transfer-ns init-empty-state file-seq *command-line-args* slurp spit line-seq *in*]]
             [planck.repl :as repl]
             [planck.js-deps :as js-deps]
+            [planck.shell :refer [sh]]
+            [planck.io :as planck-io]
             [clojure.string :as string]
             [clojure.set :as set]
             [cljs.js :as cljsjs]
@@ -158,6 +160,22 @@
   (let [res (atom nil)
         _ (cljs.js/compile-str repl/st source (str "macro-compile-" namespace) #(reset! res %))]
     @res))
+
+(defn clj*-sources
+  [namespace]
+  (let [path (string/replace (ns->path namespace) "$macros" "")
+        cljs-clojure-variants (cond (string/starts-with? path "cljs/") [path (string/replace path #"^cljs/" "clojure/")]
+                                    (string/starts-with? path "clojure/") [path (string/replace path #"^clojure/" "cljs/")]
+                                    :else [path])]
+    (for [path cljs-clojure-variants
+          ext ["clj"
+               "cljc"
+               "cljs"]
+          :let [full-path (str path "." ext)
+                contents (resource full-path)
+                _ (prn :try full-path (boolean contents))]
+          :when contents]
+      [full-path contents])))
 
 (defn macro-str
   ;; TODO
@@ -333,12 +351,22 @@
       (println "Error reading standard in" error "\n\n")
       (doseq [[dep-spec provided] (partition 2 (interleave bundles provided-results))]
         (set! out-path (str user-dir "/" cljsbuild-out))
-        (let [bundle-spec (calculate-deps dep-spec provided)
+        (let [{:keys [require-source require-cache] :as bundle-spec} (calculate-deps dep-spec provided)
               deps (assoc (bundle-deps bundle-spec) :provided (vec (sort provided)))
-              js-string (js/JSON.stringify (clj->js deps))
-              out-path (str (path-join user-dir output-dir (-> (:name dep-spec) name munge)) ".json")]
-
-          (spit out-path js-string)
+              #_deps #_(reduce (fn [deps [path source]]
+                                 (assoc deps path source)) deps (mapcat clj*-sources (distinct (concat require-source require-cache))))
+              out-dir (path-join user-dir output-dir)
+              bundle-str (js/JSON.stringify (clj->js deps))
+              bundle-path (str (path-join out-dir (-> (:name dep-spec) name munge)) ".json")
+              clj*-sources (mapcat clj*-sources (distinct (concat require-source require-cache)))]
+          (doseq [[path source] clj*-sources]
+            (let [path (path-join out-dir "sources" path)
+                  dir (apply path-join (drop-last (string/split path "/")))]
+              (prn :path path
+                   :dir dir)
+              (sh "mkdir" "-p" dir)
+              (spit path source)))
+          (spit bundle-path bundle-str)
           (println "Bundle " (:name dep-spec) ":\n")
           (pprint (reduce-kv (fn [m k v] (assoc m k (set v))) {} (dissoc bundle-spec :provided-goog)))
-          (println "emitted " out-path))))))
+          (println "emitted " bundle-path))))))
