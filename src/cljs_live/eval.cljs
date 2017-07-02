@@ -169,8 +169,9 @@
                                    (repl-special c-state c-env form)
                                    (let [result (atom)
                                          cb (partial swap! result merge)
-                                         file-name (name (gensym "user_cljs"))]
-
+                                         file-name (str (string/replace (str (:ns env)) "." "/") "/" (gensym "cljs_live_") (if (string/ends-with? (str (:ns env)) "$macros")
+                                                                                                                             ".clj"
+                                                                                                                             ".cljs"))]
                                      (binding [*cljs-warning-handlers* [(partial warning-handler form source)]
                                                r/*data-readers* (conj r/*data-readers* {'js identity})]
                                        (if source
