@@ -172,8 +172,7 @@
                "cljc"
                "cljs"]
           :let [full-path (str path "." ext)
-                contents (resource full-path)
-                _ (prn :try full-path (boolean contents))]
+                contents (resource full-path)]
           :when contents]
       [full-path contents])))
 
@@ -362,8 +361,6 @@
           (doseq [[path source] clj*-sources]
             (let [path (path-join out-dir "sources" path)
                   dir (apply path-join (drop-last (string/split path "/")))]
-              (prn :path path
-                   :dir dir)
               (sh "mkdir" "-p" dir)
               (spit path source)))
           (spit bundle-path bundle-str)
