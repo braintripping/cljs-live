@@ -219,12 +219,14 @@
   "Eval a list of forms"
   [c-state c-env forms]
   (binding [*cljs-warnings* (or *cljs-warnings* (atom []))]
-    (loop [forms forms]
+    (loop [forms forms
+           intermediate-values []]
       (let [{:keys [error] :as result} (eval c-state c-env (first forms))
             remaining (rest forms)]
         (if (or error (empty? remaining))
-          (assoc result :warnings @*cljs-warnings*)
-          (recur remaining))))))
+          (assoc result :warnings @*cljs-warnings*
+                        :intermediate-values intermediate-values)
+          (recur remaining (conj intermediate-values result)))))))
 
 (defn read-src
   "Read src using indexed reader."
