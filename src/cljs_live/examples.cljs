@@ -39,7 +39,7 @@
 
 ")
                    [:.f2.mt4.mb2.tc "examples"]
-                   [:p.tc.mb3 "(hit command-enter in a textarea to re-evaluate)"]
+                   [:p.tc.mb3 "(hit ctrl-enter in a textarea to re-evaluate)"]
                    (for [{:keys [render]} @examples]
                      (render))]))
 
@@ -59,7 +59,7 @@
 
                                        [:textarea.fl.w-50.pre-wrap.h4
                                         {:on-change   #(reset! source (.-value (.-currentTarget %)))
-                                         :on-key-down #(when (and (= 13 (.-which %)) (.-metaKey %))
+                                         :on-key-down #(when (and (= 13 (.-which %)) (.-ctrlKey %))
                                                          (eval))
                                          :value       @source}]
                                        [:.fl.w-50.pl4
