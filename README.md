@@ -1,8 +1,47 @@
-# cljs-live
+# CLJS-Live
 
-CLJS Live includes a dependency bundler for self-hosted ClojureScript, and helper utilities for using the bundles with the compiler.
 
-ALPHA
+Until 2015, ClojureScript required Java to compile, and therefore only _compiled_ apps could run in a web browser -- we had no `eval` :(. But that changed with the release of the self-hosted compiler :). Today, thanks to tools available to all in the `cljs.js` namespace, `eval` is easy.
+
+But what is not easy is _dependency management_ in this new environment. In traditional Clojure, the compiler knows how to search the current `classpath` to find source files. But what happens in a browser, where there is no classpath? How do we make dependencies available in this new environment?
+
+This is where `cljs-live` steps in.
+
+`cljs-live` consists of two main parts. First, there is a bundler script (`bundle.sh`). Given the file containing dependency information (see the example `live-deps.clj` file), the bundle script does the following:
+
+ 1. Calculates all of the dependent namespaces, transitively
+ 2. Finds source files for all of these dependencies
+ 3. Precompiles the source files into JavaScript
+ 4. Emits a file containing a JSON object with all the precompiled javascript, as well as analysis caches for these files (you can't use precompiled CLJS with the self-hosted compiler without including these caches!)
+ 5. Copies all of the original source files into the same directory (useful for source lookups, later)
+
+The second part of `cljs-live` is a small library of functions for use _in the browser_. These include two functions in `cljs-live.compiler`:
+
+* `load-bundles!` downloads precompiled bundles created by the bundle script, and merges them into a single local cache (kind of like a fake 'classpath').
+* `load-fn` can then be passed as the :load function to `cljs.js` eval/compile functions, and will correctly resolve namespaces to the precompiled sources in the bundle cache.
+
+That's all you need, if you want to retain full control over the eval/compile process. But if you want a smoother experience, we also provide some eval-related functions in `cljs-live.eval`:
+
+* `eval-str` evaluates all of the forms in a given string and returns the last result
+* `eval` evaluates a single form
+
+The `eval-str` and `eval` in `cljs-live` have some additional functionality over what you find in `cljs.js`:
+
+- Source mapping: the default `cljs.js` does not expose source maps from `eval`, so you have to perform an intermediate `compile` to get this information. We give this to you in one step.
+- Error positions: when an error is encountered, we use source-maps to find its position in the original source file, which was also emitted (separately) from the bundler.
+- Namespace tracking: the current namespace is stored in a compiler-env atom; the `ns` and `in-ns` repl-special functions update this atom whenever the user changes the namespace
+
+Specifically, when you call `eval` and `eval-str` you get back a map which includes:
+
+  :value or :error - depending on the result of evaluation
+  :error-location  - the 0-indexed position of the error, if present
+  :compiled-js     - the javascript source emitted by the compiler
+  :source          - the source code string that was evaluated
+  :source-map      - the base64-encoded source-map string
+  :env             - the compile environment, a map containing :ns (current namespace)
+
+For real-world usage, this is valuable information to keep on hand.
+
 
 ### Example
 
