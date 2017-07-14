@@ -5,7 +5,7 @@
             [cljs.analyzer :refer [*cljs-warning-handlers*]]
             [cljs-live.compiler :as c]
             [cljs.repl :refer [print-doc]]
-
+            [goog.object :as gobj]
             [clojure.string :as string]
             [goog.crypt.base64 :as base64]
             [cljs.source-map :as sm])
@@ -47,10 +47,17 @@
         (str s "$macros")))))
 
 (defn resolve-var
-  ([sym] (resolve-var c-state c-env sym))
+  ([sym]
+   (resolve-var c-state c-env sym))
   ([c-state c-env sym]
    (binding [cljs.env/*compiler* c-state]
      (cljs.analyzer/resolve-var (assoc @cljs.env/*compiler* :ns (get-ns c-state (or (:ns @c-env) 'cljs.user))) sym))))
+
+(defn var-value [the-var]
+  (->> (string/split (:name the-var) #"[\./]")
+       (map munge)
+       (to-array)
+       (apply gobj/getValueByKeys js/window)))
 
 (defn resolve-symbol
   ([sym] (resolve-symbol c-state c-env sym))
