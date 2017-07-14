@@ -1,13 +1,13 @@
 # CLJS-Live
 
 
-Until 2015, ClojureScript required Java to compile, and therefore only _compiled_ apps could run in a web browser -- we had no `eval` :(. But that changed with the release of the self-hosted compiler :). Today, thanks to tools available to all in the `cljs.js` namespace, `eval` is easy.
+Until 2015, ClojureScript required Java to compile, and therefore only _compiled_ apps could run in a web browser -- we had no `eval` :(. But that changed with the release of the self-hosted compiler :). Today, thanks to tools available in the `cljs.js` namespace, `eval` is easy.
 
 But what is not easy is _dependency management_ in this new environment. In traditional Clojure, the compiler knows how to search the current `classpath` to find source files. But what happens in a browser, where there is no classpath? How do we make dependencies available in this new environment?
 
 This is where `cljs-live` steps in.
 
-`cljs-live` consists of two main parts. First, there is a bundler script (`bundle.sh`). Given the file containing dependency information (see the example `live-deps.clj` file), the bundle script does the following:
+`cljs-live` consists of two main parts. First, there is a bundler script (`bundle.sh`). Given a file containing dependency information (see the example `live-deps.clj` file), the bundle script does the following:
 
  1. Calculates all of the dependent namespaces, transitively
  2. Finds source files for all of these dependencies
