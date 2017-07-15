@@ -13,8 +13,9 @@
   (api/build src-path {:output-dir     output-dir
                        :dump-core      false
                        :parallel-build true
+                       :source-map     false
                        :cache-analysis true
-                       :optimizations  :none}))
+                       :optimizations  :simple}))
 
 (defn cljs-deps [& inputs]
   (binding [env/*compiler* (env/default-compiler-env)]
