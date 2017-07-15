@@ -15,7 +15,7 @@
                        :parallel-build true
                        :source-map     false
                        :cache-analysis true
-                       :optimizations  :simple}))
+                       :optimizations  :none}))
 
 (defn cljs-deps [& inputs]
   (binding [env/*compiler* (env/default-compiler-env)]
