@@ -116,13 +116,17 @@
 (defn warning-handler
   "Collect warnings in a dynamic var"
   [form source warning-type env extra]
+  ;; note - not including `env` in warnings maps, because it is so large and can't be printed.
+  ;;        also unsure of memory implications.
   (some-> *cljs-warnings*
-          (swap! conj {:type   warning-type
-                       :env    (relative-pos (dec-pos env) (when (satisfies? IMeta form) (some-> (meta form)
-                                                                                                 (dec-pos))))
-                       :extra  extra
-                       :source source
-                       :form   form})))
+          (swap! conj {:type             warning-type
+                       :warning-position (relative-pos (-> (select-keys env [:line :column])
+                                                           (dec-pos))
+                                                       (when (satisfies? IMeta form) (some-> (meta form)
+                                                                                             (dec-pos))))
+                       :extra            extra
+                       :source           source
+                       :form             form})))
 
 (defn error-position [error]
   (let [[line column] (->> (re-find #"<anonymous>:(\d+)(?::(\d+))" (.-stack error))
@@ -187,14 +191,14 @@
                                                                (let [[js-source source-map] (clojure.string/split compiled-js #"\n//#\ssourceURL[^;]+;base64,")]
                                                                  (->> (if error
                                                                         {:error          error
-                                                                         :error-location (some-> (ex-cause error)
+                                                                         :error-position (some-> (ex-cause error)
                                                                                                  (ex-data)
                                                                                                  (select-keys [:line :column])
                                                                                                  (dec-pos)
                                                                                                  (relative-pos start-pos))}
                                                                         (-> (try {:value (js/eval js-source)}
                                                                                  (catch js/Error e {:error          e
-                                                                                                    :error-location (-> (error-position e)
+                                                                                                    :error-position (-> (error-position e)
                                                                                                                         (mapped-cljs-position source-map)
                                                                                                                         (relative-pos start-pos))}))
                                                                             (merge {:compiled-js js-source
