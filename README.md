@@ -12,7 +12,7 @@ This is where `cljs-live` steps in.
  1. Calculates all of the dependent namespaces, transitively
  2. Finds source files for all of these dependencies
  3. Precompiles the source files into JavaScript
- 4. Emits a file containing a JSON object with all the precompiled javascript, as well as analysis caches for these files (you can't use precompiled CLJS with the self-hosted compiler without including these caches!)
+ 4. Emits a file containing a JSON object with all the precompiled javascript, as well as analysis caches for these files (you can't use precompiled CLJS with the self-hosted compiler without including these caches)
  5. Copies all of the original source files into the same directory (useful for source lookups, later)
 
 The second part of `cljs-live` is a small library of functions for use _in the browser_. These include two functions in `cljs-live.compiler`:
@@ -34,7 +34,7 @@ The `eval-str` and `eval` in `cljs-live` have some additional functionality over
 Specifically, when you call `eval` and `eval-str` you get back a map which includes:
 
   :value or :error - depending on the result of evaluation
-  :error-location  - the 0-indexed position of the error, if present
+  :error-position  - the 0-indexed position of the error, if present
   :compiled-js     - the javascript source emitted by the compiler
   :source          - the source code string that was evaluated
   :source-map      - the base64-encoded source-map string
@@ -84,8 +84,6 @@ Given a map containing `ns`-style requirement expressions (`:require, :require-m
 
 **Note the `:cljsbuild-out` key.**
 - This should correspond to the `:output-dir` in the compiler options for your build.
-- Make sure that compiler options include `:cache-analysis true` (see the [example cljsbuild options](https://github.com/mhuebert/cljs-live/blob/master/script/build_example.clj)).
-- Make sure that you have run a build and left this `out` folder intact before running this script.
 
 **Run `bundle.sh live-deps.clj`.**
 - This should write a bundle of javascript source files and analysis caches to the `:output-to` path, which you can include on a webpage.

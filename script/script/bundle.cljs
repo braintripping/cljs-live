@@ -20,12 +20,8 @@
 (defn get-named-arg [name]
   (second (first (filter #(= name (first %)) (partition 2 1 *command-line-args*)))))
 
-
-
 (def user-dir (get-named-arg "--user-dir"))
 (def out-path nil)
-
-
 
 (defn safe-slurp [path]
   (try (slurp path)
@@ -105,7 +101,7 @@
            ["my_app/core" "my_app/core$macros" "my_app/some_lib"]))
 
 (defn macroize-sym [s]
-  (str s "$macros"))
+  (symbol (str s "$macros")))
 
 (def get-deps
   (memoize (fn [ana-ns]

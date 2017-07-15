@@ -158,7 +158,7 @@
   Eval returns a map containing:
 
   :value or :error - depending on the result of evaluation
-  :error-location  - the 0-indexed position of the error, if present
+  :error-position  - the 0-indexed position of the error, if present
   :compiled-js     - the javascript source emitted by the compiler
   :source          - the source code string that was evaluated
   :source-map      - the base64-encoded source-map string

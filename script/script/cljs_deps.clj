@@ -9,9 +9,11 @@
             [cljs.js-deps :as deps]))
 
 (defn compile-cljs [src-path output-dir]
+  (prn :compile-cljs output-dir)
   (api/build src-path {:output-dir     output-dir
                        :dump-core      false
                        :parallel-build true
+                       :cache-analysis true
                        :optimizations  :none}))
 
 (defn cljs-deps [& inputs]
@@ -45,20 +47,33 @@
        (map symbol)
        set))
 
-(let [{:keys [bundles cljsbuild-out source-paths]} (->> (cmd-arg "--deps")
-                                                        slurp
-                                                        r/read-string)
-      provides (try {:value (doall (for [{:keys [provided dependencies]} bundles]
-                                     (do (when dependencies (install-deps dependencies))
-                                         (doseq [s source-paths]
-                                           (compile-cljs s cljsbuild-out))
-                                         (transitive-deps provided))))}
-                    (catch Exception e {:error e}))
-      classpath (time (->> (map :jar (alembic.still/dependency-jars))
-                           (string/join ":")))]
-  (println (str "__BEGIN_CLASSPATH__"
-                classpath
-                "__END_CLASSPATH__"))
-  (prn provides))
+(def compile-source-path (memoize (fn [s out]
+                                    (compile-cljs s out))))
+
+(defn init [{:keys [bundles cljsbuild-out source-paths]}]
+  (let [root (cmd-arg "--root")]
+    (doseq [{:keys [dependencies source-paths name]} bundles]
+      (doseq [s source-paths]
+        (println [name :compile-source-path])
+        (compile-source-path (str root "/" s) (str root "/" cljsbuild-out)))
+      (when dependencies
+        (println [name :dependencies])
+        (install-deps dependencies))))
+  (println :Calculate-Provided...)
+  (let [provides (try {:value (map (comp transitive-deps :provided) bundles)}
+                      (catch Exception e {:error e}))
+        classpath (->> (map :jar (alembic.still/dependency-jars))
+                       (string/join ":"))]
+    (prn :out-dir cljsbuild-out)
+    (prn :provides provides)
+
+    (println (str "__BEGIN_CLASSPATH__"
+                  classpath
+                  "__END_CLASSPATH__"))
+    (prn provides)))
+
+(init (->> (cmd-arg "--deps")
+           slurp
+           r/read-string))
 
 
