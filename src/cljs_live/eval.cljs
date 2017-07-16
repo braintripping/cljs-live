@@ -93,7 +93,8 @@
   (let [f (get repl-specials (first body))]
     (try (f c-state c-env body)
          (catch js/Error e
-           (prn "repl-special error" e)
+           (prn "repl-special error" body)
+           (.error js/console e)
            {:error e}))))
 
 (defn dec-pos

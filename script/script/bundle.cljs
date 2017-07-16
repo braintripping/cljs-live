@@ -286,6 +286,13 @@
                                                                   (string/replace "exclude" "require")
                                                                   keyword) %3) {})) deps))))
 
+(defn cache-unnecessary?
+  "Do not look for caches when there is a javascript source file not compiled by ClojureScript."
+  [namespace]
+  (or (string/starts-with? (str namespace) "goog.")
+      (let [the-file (resource (ns->path namespace ".js"))]
+        (and the-file (not (string/starts-with? the-file "// Compiled by ClojureScript"))))))
+
 (defn bundle-deps [{:keys [require-source
                            require-cache
                            require-foreign-dep
@@ -295,9 +302,11 @@
   (let [provided-goog-files (set (mapcat goog/goog-dep-files provided-goog))
 
         caches (reduce (fn [m namespace]
-                         (let [cache (cache-str namespace true)]
-                           (cond-> m
-                                   cache (assoc (str (ns->path namespace) ".cache.json") cache)))) {} require-cache)
+                         (if (cache-unnecessary? namespace)
+                           m
+                           (let [cache (cache-str namespace true)]
+                             (cond-> m
+                                     cache (assoc (str (ns->path namespace) ".cache.json") cache))))) {} require-cache)
 
         sources (reduce (fn [m namespace]
                           (let [path (ns->path namespace)
