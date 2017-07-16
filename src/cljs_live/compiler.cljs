@@ -98,14 +98,14 @@
                                     (some-> (get @cljs-cache (str path ".clj"))
                                             (list :clj))))
                 cache (some-> (get @cljs-cache (str path ".cache.json")) (transit-json->cljs))
-                result (cond-> blank-result
+                result (cond-> (assoc blank-result :name name)
                                cache (merge {:cache cache})
                                source (merge {:source source
                                               :lang   lang}))]
             (when (or cache source)
               (set! *loaded-libs* (conj *loaded-libs* (str name))) 0)
 
-            (when debug?
+            (when true #_debug?
               (if (.test #"^goog" (str name))
                 (when (and (not js-provided?) (not source) (.test #"^goog" (str name)))
                   (log (str "Missing dependency: " name))))

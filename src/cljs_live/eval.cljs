@@ -25,7 +25,12 @@
 (defn c-opts
   [c-state env]
   {:load          (partial c/load-fn c-state)
-   :eval          cljs/js-eval
+   :eval          (fn [{:keys [source cache lang name]}]
+                    #_(println "Eval" {:name   name
+                                       :lang   lang
+                                       :cache  (some-> cache (str) (subs 0 20))
+                                       :source (some-> source (subs 0 150))})
+                    (js/eval source))
    :ns            (:ns @env)
    :context       :expr
    :source-map    true
@@ -229,11 +234,11 @@
 
   Returns the result of the last form. A vector of earlier results is returned in
   the :intermediate-values key."
-  [c-state c-env forms]
+  [c-state c-env forms opts]
   (binding [*cljs-warnings* (or *cljs-warnings* (atom []))]
     (loop [forms forms
            intermediate-values []]
-      (let [{:keys [error] :as result} (eval c-state c-env (first forms))
+      (let [{:keys [error] :as result} (eval c-state c-env (first forms) opts)
             remaining (rest forms)]
         (if (or error (empty? remaining))
           (assoc result :warnings @*cljs-warnings*
@@ -252,9 +257,10 @@
 (defn eval-str
   "Eval string by first reading all top-level forms, then eval'ing them one at a time.
   Stops at the first error."
-  ([src] (eval-str c-state c-env src))
-  ([c-state c-env src]
+  ([src] (eval-str c-state c-env src {}))
+  ([c-state c-env src] (eval-str c-state c-env src {}))
+  ([c-state c-env src opts]
    (let [{:keys [error value] :as result} (read-src c-state c-env src)]
      (if error
        result
-       (eval-forms c-state c-env value)))))
+       (eval-forms c-state c-env value opts)))))
