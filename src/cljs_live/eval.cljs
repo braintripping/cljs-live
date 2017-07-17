@@ -153,6 +153,39 @@
     {:line   line
      :column col}))
 
+(defn compile-str
+  ([c-state c-env source] (compile-str c-state c-env source {}))
+  ([c-state c-env source {:keys [form
+                                 file-name
+                                 opts
+                                 start-position]}]
+   (let [the-ns (:ns @c-env)
+         opts (merge (c-opts c-state c-env) opts)
+         file-name (or file-name (str (string/replace (str the-ns) "." "/") "/" (gensym "cljs_live_") (if (string/ends-with? (str the-ns) "$macros")
+                                                                                                        ".clj"
+                                                                                                        ".cljs")))
+         result (atom nil)]
+     (binding [*cljs-warning-handlers* [(partial warning-handler form source)]
+               r/*data-readers* (conj r/*data-readers* {'js identity})]
+       (swap! c/cljs-cache assoc name source)
+       (cljs/compile-str c-state source file-name opts
+                         (fn [{error                       :error
+                               compiled-js-with-source-map :value}]
+                           (let [[compiled-js source-map] (clojure.string/split compiled-js-with-source-map #"\n//#\ssourceURL[^;]+;base64,")]
+                             (->> (if error
+                                    {:error          error
+                                     :error-position (some-> (ex-cause error)
+                                                             (ex-data)
+                                                             (select-keys [:line :column])
+                                                             (dec-pos)
+                                                             (relative-pos start-position))}
+                                    {:compiled-js compiled-js
+                                     :source      source
+                                     :source-map  source-map
+                                     :env         @c-env})
+                                  (reset! result)))))
+       @result))))
+
 (defn eval
   "Eval a single form. Arguments:
    c-state - a cljs compiler state atom
@@ -175,45 +208,36 @@
    (let [repl-special? (and (seq? form)
                             (contains? repl-specials (first form))
                             (not (::skip-repl-special (meta form))))
-         env @c-env
          opts (merge (c-opts c-state c-env) opts)
          {:keys [source] :as start-pos} (when (satisfies? IMeta form)
                                           (some-> (meta form) (dec-pos)))
          {:keys [ns] :as result} (if repl-special?
                                    (repl-special c-state c-env form)
-                                   (let [result (atom)
-                                         cb (partial swap! result merge)
-                                         file-name (str (string/replace (str (:ns env)) "." "/") "/" (gensym "cljs_live_") (if (string/ends-with? (str (:ns env)) "$macros")
-                                                                                                                             ".clj"
-                                                                                                                             ".cljs"))]
-                                     (binding [*cljs-warning-handlers* [(partial warning-handler form source)]
-                                               r/*data-readers* (conj r/*data-readers* {'js identity})]
-                                       (if source
-                                         (do
-                                           (swap! c/cljs-cache assoc file-name source)
-                                           (cljs/compile-str c-state source file-name opts
-                                                             (fn [{error       :error
-                                                                   compiled-js :value}]
-                                                               (let [[js-source source-map] (clojure.string/split compiled-js #"\n//#\ssourceURL[^;]+;base64,")]
-                                                                 (->> (if error
-                                                                        {:error          error
-                                                                         :error-position (some-> (ex-cause error)
-                                                                                                 (ex-data)
-                                                                                                 (select-keys [:line :column])
-                                                                                                 (dec-pos)
-                                                                                                 (relative-pos start-pos))}
-                                                                        (-> (try {:value (js/eval js-source)}
-                                                                                 (catch js/Error e {:error          e
-                                                                                                    :error-position (-> (error-position e)
-                                                                                                                        (mapped-cljs-position source-map)
-                                                                                                                        (relative-pos start-pos))}))
-                                                                            (merge {:compiled-js js-source
-                                                                                    :source      source
-                                                                                    :source-map  source-map
-                                                                                    :env         env})))
-                                                                      (reset! result))))))
-                                         (cljs/eval c-state form opts cb)))
-                                     @result))]
+                                   (binding [*cljs-warning-handlers* [(partial warning-handler form source)]
+                                             r/*data-readers* (conj r/*data-readers* {'js identity})]
+                                     (if source
+                                       (let [{:keys [compiled-js
+                                                     source-map
+                                                     error] :as result} (compile-str c-state c-env source {:form           form
+                                                                                                           :opts           opts
+
+                                                                                                           :start-position start-pos})]
+                                         (merge result
+                                                (if error
+                                                  {:error          error
+                                                   :error-position (some-> (ex-cause error)
+                                                                           (ex-data)
+                                                                           (select-keys [:line :column])
+                                                                           (dec-pos)
+                                                                           (relative-pos start-pos))}
+                                                  (try {:value (js/eval compiled-js)}
+                                                       (catch js/Error e {:error          e
+                                                                          :error-position (-> (error-position e)
+                                                                                              (mapped-cljs-position source-map)
+                                                                                              (relative-pos start-pos))})))))
+                                       (let [result (atom nil)]
+                                         (cljs/eval c-state form opts #(reset! result %))
+                                         @result))))]
      (when (and (some? ns) (not= ns (:ns @c-env)))
        (swap! c-env assoc :ns ns))
      result)))
