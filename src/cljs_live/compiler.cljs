@@ -104,8 +104,9 @@
                                               :lang   lang}))]
             (when (or cache source)
               (set! *loaded-libs* (conj *loaded-libs* (str name))) 0)
-
-            (when true #_debug?
+            (when (and cache (not source))
+              (swap! c-state assoc-in [:cljs.analyzer/namespaces name] cache))
+            (when debug?
               (if (.test #"^goog" (str name))
                 (when (and (not js-provided?) (not source) (.test #"^goog" (str name)))
                   (log (str "Missing dependency: " name))))
@@ -115,6 +116,7 @@
                     (if c-state-provided? "in-c-state" "          ")
                     ;; is maria.persistence.github there?
                     (when (boolean source) lang)] name))
+
             result)))))
 
 (defn get-json [path cb]
