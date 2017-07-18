@@ -1,14 +1,12 @@
 #!/usr/bin/env planck
 (ns script.goog-deps
-  (:require [planck.core :refer [*command-line-args* slurp]]
-            [planck.shell :as shell :refer [sh]]
-            [planck.io :as io]
+  (:require [planck.shell :as shell]
             [clojure.set :refer [difference union intersection]]
             [planck.repl :as repl]
             [clojure.string :as string]
             [script.io :refer [resource]]))
 
-(def dep-cache (-> (:out (sh "node" "../read_closure_library_deps.js"))
+(def dep-cache (-> (:out (shell/sh "node" "../read_closure_library_deps.js"))
                    js/JSON.parse
                    js->clj))
 

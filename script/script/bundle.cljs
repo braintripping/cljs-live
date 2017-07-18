@@ -12,7 +12,8 @@
             [cljs.tools.reader :as r]
             [cljs.pprint :refer [pprint]]
             [script.goog-deps :as goog]
-            [script.io :refer [->transit transit->clj realize-lazy-map]]))
+            [script.io :refer [->transit transit->clj realize-lazy-map]]
+            ))
 
 (defn log [& args]
   #_(.error js/console args))
