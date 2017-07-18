@@ -22,9 +22,7 @@
   compiled script."
   [name]
   (or (contains? *loaded-libs* name)
-      (if-let [provided? (aget js/goog "isProvided_")]
-        (provided? name)
-        (contains? (@cljs-cache "provided") (str name)))))
+      (contains? (get @cljs-cache "provided") (str name))))
 
 ;; from cljs.js-deps
 (defn parse-goog-provides
@@ -87,7 +85,7 @@
                      macros (str "$macros"))
         name (if-not macros name
                             (symbol (str name "$macros")))
-        js-provided? (is-provided (str name))
+        js-provided? (is-provided name)
         c-state-provided? (contains? (get-in @c-state [::loaded]) name)]
     (swap! c-state update ::loaded (fnil conj #{}) name)
     (cb (if (and (*loaded-libs* (str name)) c-state-provided?)
@@ -107,9 +105,8 @@
             (when (and cache (not source))
               (swap! c-state assoc-in [:cljs.analyzer/namespaces name] cache))
             (when debug?
-              (if (.test #"^goog" (str name))
-                (when (and (not js-provided?) (not source) (.test #"^goog" (str name)))
-                  (log (str "Missing dependency: " name))))
+              (when (and (not js-provided?) (not source) (.test #"^goog" (str name)))
+                (log (str "Missing dependency: " name)))
               (log [(if (boolean source) "source" "      ")
                     (if (boolean cache) "cache" "     ")
                     (if js-provided? "js-provided" "           ")
