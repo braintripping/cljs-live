@@ -64,12 +64,12 @@ Given a map containing `ns`-style requirement expressions (`:require, :require-m
 
 ### Usage
 
-- Put a symlink to bundle.sh on your path.
 - In your project directory, create a `live-deps.clj` file. See the [example file](https://github.com/mhuebert/cljs-live/blob/master/live-deps.clj) for options.
+- Run `cljs-live/bundle`, passing the path to a `live-deps` file.
 
 ```clj
-{:output-dir     "resources/public/js/cljs_live_cache.js" ;; where to save the output file
- :cljsbuild-out  "resources/public/js/compiled/out"} ;; the `output-dir` of your cljsbuild options
+{:output-dir     "resources/public/js/cljs_live" ;; where to save output files
+ :cljsbuild-out  "resources/public/js/compiled/out"} ;; an `output-dir`, for the cljs-live compile step
  :source-paths   ["src"]
  :bundles        [{;; same behaviour as `ns` forms:
                    :require        [app.repl-user :include-macros true]
@@ -82,12 +82,6 @@ Given a map containing `ns`-style requirement expressions (`:require, :require-m
 }]
 ```
 
-**Note the `:cljsbuild-out` key.**
-- This should correspond to the `:output-dir` in the compiler options for your build.
-
-**Run `bundle.sh live-deps.clj`.**
-- This should write a bundle of javascript source files and analysis caches to the `:output-to` path, which you can include on a webpage.
-- Use the `load-fn` in `cljs-live.compiler` to read from the bundle.
 
 ## Modifying the bundle
 
