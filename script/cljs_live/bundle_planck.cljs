@@ -1,27 +1,43 @@
-#!/usr/bin/env planck
-(ns script.bundle
+(ns cljs-live.bundle-planck
   (:require [planck.core :refer [transfer-ns init-empty-state file-seq *command-line-args* slurp spit line-seq *in*]]
             [planck.repl :as repl]
             [planck.js-deps :as js-deps]
             [planck.shell :refer [sh]]
             [planck.io :as planck-io]
             [clojure.string :as string]
-            [clojure.set :as set]
             [cljs.js :as cljsjs]
             [clojure.string :as string]
             [cljs.tools.reader :as r]
+            [cognitect.transit :as t]
             [cljs.pprint :refer [pprint]]
-            [script.goog-deps :as goog]
-            [script.io :refer [->transit transit->clj realize-lazy-map]]
-            ))
+            [cljs-live.goog-deps :as goog-deps]))
+
+(defn resource
+  "Loads the content for a given file. Includes planck cache path."
+  [file]
+  (first (or (js/PLANCK_READ_FILE file)
+             (js/PLANCK_LOAD file)
+             (js/PLANCK_READ_FILE (str (:cache-path @repl/app-env) "/" (munge file))))))
+
+(defn realize-lazy-map [m]
+  (reduce (fn [acc k] (assoc acc k (get m k)))
+          {} (keys m)))
+
+(def ->transit
+  (memoize
+    (fn [x]
+      (let [w (t/writer :json)]
+        (t/write w (realize-lazy-map x))))))
+
+(def transit->clj
+  (memoize
+    (fn [x]
+      (let [r (t/reader :json)]
+        (t/read r x)))))
 
 (defn log [& args]
   #_(.error js/console args))
 
-(defn get-named-arg [name]
-  (second (first (filter #(= name (first %)) (partition 2 1 *command-line-args*)))))
-
-(def user-dir (get-named-arg "--user-dir"))
 (def out-path nil)
 
 (defn safe-slurp [path]
@@ -246,6 +262,12 @@
     (f)
     (set! repl/skip-load? skip-load?)))
 
+(defn goog? [namespace]
+  (= "goog" (-> namespace
+                str
+                (string/split ".")
+                first)))
+
 (defn calculate-deps [dep-spec provided]
   ;; require target deps into Planck for AOT analysis & compilation
   (let [ns-name (symbol (str "temp." (gensym)))]
@@ -267,7 +289,7 @@
           (disj deps 'cljs.env)                             ; read from Planck's analysis cache to get transitive dependencies
           (group-by #(let [provided? (contains? provided %)]
                        (cond (contains? #{'cljs.core 'cljs.core$macros} %) nil ;; only include cljs.core($macros) when explicitly requested
-                             (goog/goog? %) (if provided? :provided-goog :require-goog)
+                             (goog? %) (if provided? :provided-goog :require-goog)
                              (foreign-lib? %) (when-not provided? :require-foreign-dep)
                              (not provided?) :require-source
                              :else :require-cache)) deps)
@@ -300,7 +322,7 @@
                            require-goog
                            provided-goog]}]
 
-  (let [provided-goog-files (set (mapcat goog/goog-dep-files provided-goog))
+  (let [provided-goog-files (set (mapcat goog-deps/goog-dep-files provided-goog))
 
         caches (reduce (fn [m namespace]
                          (if (cache-unnecessary? namespace)
@@ -330,7 +352,7 @@
         goog (reduce (fn [m goog-file]
                        (cond-> m
                                (not (contains? provided-goog-files goog-file))
-                               (assoc goog-file (resource goog-file)))) {} (apply goog/goog-dep-files require-goog))]
+                               (assoc goog-file (resource goog-file)))) {} (apply goog-deps/goog-dep-files require-goog))]
     (merge-with (fn [v1 v2]
                   (if (coll? v1) (into v1 v2) v2)) caches sources foreign-deps goog)))
 
@@ -341,35 +363,28 @@
       (string/replace #"/+" "/")))
 
 (defn -main []
-  (println "Main")
-  (let [{:keys [output-dir cljsbuild-out bundles]} (-> (get-named-arg "--deps")
-                                                       (slurp)
-                                                       (r/read-string))
-        stdin (string/join (line-seq *in*))
-        {provided-results :value
-         error            :error} (try (r/read-string stdin) ;; provided namespaces may be passed via stdin, as :value in a map
-                                       (catch js/Error e
-                                         (prn stdin)
-                                         (println "read-string error" e)))]
+  (println "Begin planck bundle process")
+  (let [{:keys [output-dir
+                cljsbuild-out
+                bundles
+                goog-dependencies]} (-> (string/join (line-seq *in*))
+                                        (r/read-string))]
 
-    (if error
-      (println "Error reading standard in" error "\n\n")
-      (doseq [[dep-spec provided] (partition 2 (interleave bundles provided-results))]
-        (set! out-path (str user-dir "/" cljsbuild-out))
-        (let [{:keys [require-source require-cache] :as bundle-spec} (calculate-deps dep-spec provided)
-              deps (assoc (bundle-deps bundle-spec) :provided (vec (sort provided)))
-              #_deps #_(reduce (fn [deps [path source]]
-                                 (assoc deps path source)) deps (mapcat clj*-sources (distinct (concat require-source require-cache))))
-              out-dir (path-join user-dir output-dir)
-              bundle-str (js/JSON.stringify (clj->js deps))
-              bundle-path (str (path-join out-dir (-> (:name dep-spec) name munge)) ".json")
-              clj*-sources (mapcat clj*-sources (distinct (concat require-source require-cache)))]
-          (doseq [[path source] clj*-sources]
-            (let [path (path-join out-dir "sources" path)
-                  dir (apply path-join (drop-last (string/split path "/")))]
-              (sh "mkdir" "-p" dir)
-              (spit path source)))
-          (spit bundle-path bundle-str)
-          (println "Bundle " (:name dep-spec) ":\n")
-          (pprint (reduce-kv (fn [m k v] (assoc m k (set v))) {} (dissoc bundle-spec :provided-goog)))
-          (println "emitted " bundle-path))))))
+    (set! goog-deps/index (goog-deps/build-index goog-dependencies))
+    (set! out-path cljsbuild-out)
+
+    (doseq [{provided :provided/transitive :as dep-spec} bundles]
+      (let [{:keys [require-source require-cache] :as bundle-spec} (calculate-deps dep-spec provided)
+            deps (assoc (bundle-deps bundle-spec) :provided (vec (sort provided)))
+            bundle-str (js/JSON.stringify (clj->js deps))
+            bundle-path (str (path-join output-dir (-> (:name dep-spec) name munge)) ".json")
+            clj*-sources (mapcat clj*-sources (distinct (concat require-source require-cache)))]
+        (doseq [[path source] clj*-sources]
+          (let [path (path-join output-dir "sources" path)
+                dir (apply path-join (drop-last (string/split path "/")))]
+            (sh "mkdir" "-p" dir)
+            (spit path source)))
+        (spit bundle-path bundle-str)
+        (println "Bundle " (:name dep-spec) ":\n")
+        (pprint (reduce-kv (fn [m k v] (assoc m k (set v))) {} (dissoc bundle-spec :provided-goog)))
+        (println "emitted " bundle-path)))))

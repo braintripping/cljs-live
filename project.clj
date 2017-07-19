@@ -1,4 +1,4 @@
-(defproject cljs-live "0.1.22-SNAPSHOT"
+(defproject cljs-live "0.2.0-SNAPSHOT"
   :description "Tools for bunding dependencies for self-hosted ClojureScript"
   :url "https://github.com/mhuebert/cljs-live"
   :license {:name "Eclipse Public License"
@@ -9,6 +9,7 @@
                  [org.clojure/clojurescript "1.9.562"]
 
                  [com.cognitect/transit-cljs "0.8.239"]
+                 [me.raynes/conch "0.8.0"]
                  [alembic "0.3.2"]]
 
   :cljsbuild {:builds []}
