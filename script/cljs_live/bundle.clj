@@ -115,15 +115,15 @@
     (ana/write-analysis-cache the-ns (ana/cache-file uri (output-dir)))
     (ns->compiled-js the-ns)))
 
-(defn ensure-sequential [ls]
-  (if (sequential? ls) ls [ls]))
+(defn ensure-coll [ls]
+  (if (coll? ls) ls [ls]))
 
 (defn get-macro-deps [entry]
-  (->> (ensure-sequential entry)
-       (mapcat #(analyze/dep-namespaces {:include-macros? true
-                                         :recursive?      true} %))
-       (filter analyze/macros-ns?)
-       (set)))
+  (doall (->> (ensure-coll entry)
+              (mapcat #(analyze/dep-namespaces {:include-macros? true
+                                                :recursive?      true} %))
+              (filter analyze/macros-ns?)
+              (set))))
 
 (def skip-macros '#{#_clojure.template$macros
                     #_cljs.pprint$macros
@@ -163,7 +163,8 @@
 
 (defn make-bundle [{:keys [entry provided entry/exclude]
                     :or   {exclude #{}}}]
-  (let [entry-macro-deps (set/difference (get-macro-deps entry) skip-macros)
+  (let [entry-macro-deps (set/difference (set (mapcat get-macro-deps (ensure-coll entry)))
+                                         skip-macros)
         _ (prn :entry-macros entry-macro-deps)
         {:keys [macro-deps
                 macro-sources
@@ -176,8 +177,8 @@
                    :macro-sources       (keys macro-sources)
                    :macro-caches        (keys macro-caches)})
 
-        provided-deps (set (mapcat #(analyze/dep-namespaces {:include-macros? false} %) (ensure-sequential provided)))
-        entry-deps (-> (set (mapcat #(analyze/dep-namespaces {:include-macros? true} %) (ensure-sequential entry)))
+        provided-deps (set (mapcat #(analyze/dep-namespaces {:include-macros? false} %) (ensure-coll provided)))
+        entry-deps (-> (set (mapcat #(analyze/dep-namespaces {:include-macros? true} %) (ensure-coll entry)))
                        (disj 'cljs.core)
                        #_(set/union (set macro-deps)))
 
@@ -293,7 +294,7 @@
 
       (json/write-str (str bundle-out "/"))
 
-      (doseq [{:keys [name entry provided entry/no-follow entry/exclude] :as bundle-spec} bundles]
+      (doseq [{:keys [name entry/no-follow entry/exclude] :as bundle-spec} bundles]
         (binding [analyze/*no-follow* (set no-follow)
                   analyze/*exclude* (set exclude)]
           (let [{sources :sources
