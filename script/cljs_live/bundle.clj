@@ -12,7 +12,28 @@
             [cljs.analyzer :as ana]
             [clojure.tools.reader :as r]
             [clojure.data.json :as json]
-            [clojure.java.shell :as shell]))
+            [clojure.java.shell :as shell]
+            [cognitect.transit :as t])
+  (:import (java.io ByteArrayInputStream ByteArrayOutputStream)))
+
+(def ^:dynamic *string-encoding* "UTF-8")
+
+(defn transit-read
+  "Reads a value from a decoded string"
+  ([s type] (transit-read s type {}))
+  ([^String s type opts]
+   (let [in (ByteArrayInputStream. (.getBytes s *string-encoding*))]
+     (t/read (t/reader in type opts)))))
+
+(defn transit-write
+  "Writes a value to a string."
+  ([o] (transit-write o :json))
+  ([o type] (transit-write o type {}))
+  ([o type opts]
+   (let [out (ByteArrayOutputStream.)
+         writer (t/writer out type opts)]
+     (t/write writer o)
+     (.toString out *string-encoding*))))
 
 (defn map-count [m]
   (reduce-kv (fn [m k v] (assoc m k (count v))) {} m))
@@ -31,7 +52,12 @@
            :cache-analysis        true
            :cache-analysis-format :transit
            :infer-externs         false
-           :optimizations         :none})
+           :optimizations         :none
+           :pretty-print          false
+           ;:optimize-constants    true ;; causes circular dependency error
+           :static-fns            true
+
+           })
 
 (def live-st (env/default-compiler-env
                (cljsc/add-externs-sources opts)))
@@ -69,6 +95,7 @@
 
 (defn dep-kind [ns]
   (cond
+    (contains? '#{cljs.core.constants} ns) nil
     (analyze/macros-ns? ns) :macro
     (js-exists? ns) :js
     :else :cljs))
@@ -83,7 +110,8 @@
   (case (dep-kind ns)
     :js (mapv js-dep-path (transitive-js-deps [ns]))
     :macro [(:relative-path (analyze/cljs-source-for-namespace true ns))]
-    :cljs [(:relative-path (analyze/cljs-source-for-namespace false ns))]))
+    :cljs [(:relative-path (analyze/cljs-source-for-namespace false ns))]
+    nil))
 
 (defn compile-bundle-sources
   "Compile source-paths to ClojureScript.
@@ -116,7 +144,7 @@
     (ns->compiled-js the-ns)))
 
 (defn ensure-set [ls]
-  (if (coll? ls) ls (conj #{} ls)))
+  (if (coll? ls) (set ls) (conj #{} ls)))
 
 (defn get-macro-deps [entry]
   (doall (->> (ensure-set entry)
@@ -161,7 +189,11 @@
   (try (slurp f)
        (catch Exception e nil)))
 
-(defn make-bundle [{:keys [entry provided entry/exclude]
+(defn safe-slurp-resource [r]
+  (try (slurp (io/resource r))
+       (catch Exception e nil)))
+
+(defn make-bundle [{:keys [entry provided entry/exclude name]
                     :or   {exclude #{}}}]
   (let [entry-macro-deps (set/difference (set (mapcat get-macro-deps (ensure-set entry)))
                                          skip-macros)
@@ -211,7 +243,12 @@
         sources-to-copy (->> (set/union entry-deps provided-deps macro-deps)
                              (mapcat dep-paths)
                              (reduce (fn [m path]
-                                       (assoc m path (slurp (io/resource path)))) {}))]
+
+                                       (if-let [contents (safe-slurp-resource path)]
+                                         (assoc m path contents)
+                                         (do
+                                           (prn :MISSING_FILE path)
+                                           m))) {}))]
 
 
     (merge
@@ -274,6 +311,7 @@
     (binding [env/*compiler* live-st]
       (swap! env/*compiler* assoc-in [:options :output-dir] cljsbuild-out)
       (compile-bundle-sources bundle-spec)
+      (prn :names (keys (get-in @env/*compiler* [:cljs.analyzer/namespaces])))
 
       (-> opts
           (cljsc/maybe-install-node-deps!)
@@ -284,12 +322,9 @@
       (let [core-path (str bundle-out "/cljs.core.json")]
         (io/make-parents core-path)
         (spit core-path (json/write-str (->> ["cljs/core.cljs.cache.json"
-                                              #_"cljs/core$macros.js"
                                               "cljs/core$macros.cljc.cache.json"]
                                              (reduce (fn [m path]
-                                                       (prn :get-resource (str cljsbuild-out "/" path))
-                                                       (assoc m path (-> (io/file
-                                                                           cljsbuild-out path)
+                                                       (assoc m path (-> (io/file cljsbuild-out path)
                                                                          (slurp)))) {})))))
 
       (json/write-str (str bundle-out "/"))
