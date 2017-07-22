@@ -136,7 +136,29 @@
 (defn fetch-bundle [path cb]
   (get-json path (comp cb js->clj)))
 
+(defn add-bundle!
+  "Add a bundle to the local cache."
+  [bundle]
+  (let [bundle (reduce-kv (fn [bundle k v]
+                            (cond-> bundle
+                                    (.test #"^goog" k)
+                                    ;; there may be other libs that need to be parsed,
+                                    ;; but on the wrong kind of files this can be
+                                    ;; SLOW - 25 seconds for cljs.spec.alpha$macros.
+                                    #_(and (string/ends-with? k ".js")
+                                           (not (string/ends-with? k "$macros.js")))
+                                    ;; parse google provide statements to enable
+                                    ;; dependency resolution for arbitrary google closure modules.
+                                    (update "name-to-path" merge (time (let [provides (parse-goog-provides v)]
+                                                                         (when (empty? provides)
+                                                                           (println k ": " provides "\n"))
+                                                                         (apply hash-map (interleave provides (repeat k)))))))) bundle bundle)]
+    (swap! cljs-cache (partial merge-with (fn [v1 v2]
+                                            (if (coll? v1) (into v1 v2) v2))) bundle)
+    bundle))
+
 (defn load-bundles!
+  "Load multiple bundles. When finished, set window.CLJS_LIVE to entire bundle cache & evaluate callback."
   ([paths] (load-bundles! paths #()))
   ([paths cb]
    (let [bundles (atom {})
@@ -145,22 +167,7 @@
      (doseq [path paths]
        (fetch-bundle path
                      (fn [bundle]
-                       (let [bundle (reduce-kv (fn [bundle k v]
-                                                 (cond-> bundle
-                                                         (.test #"^goog" k)
-                                                         ;; there may be other libs that need to be parsed,
-                                                         ;; but on the wrong kind of files this can be
-                                                         ;; SLOW - 25 seconds for cljs.spec.alpha$macros.
-                                                         #_(and (string/ends-with? k ".js")
-                                                                     (not (string/ends-with? k "$macros.js")))
-                                                         ;; parse google provide statements to enable
-                                                         ;; dependency resolution for arbitrary google closure modules.
-                                                         (update "name-to-path" merge (time (let [provides (parse-goog-provides v)]
-                                                                                              (when (empty? provides)
-                                                                                                (println k ": " provides "\n"))
-                                                                                              (apply hash-map (interleave provides (repeat k)))))))) bundle bundle)]
-                         (swap! cljs-cache (partial merge-with (fn [v1 v2]
-                                                                 (if (coll? v1) (into v1 v2) v2))) bundle)
+                       (let [bundle (add-bundle! bundle)]
                          (swap! bundles merge bundle)
                          (swap! loaded inc)
                          (when (= total @loaded)

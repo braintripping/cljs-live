@@ -1,4 +1,4 @@
-(ns cljs-live.bundle-v2
+(ns cljs-live.bundle
   (:require [cljs.js-deps :as deps]
             [cljs.closure :as cljsc]
             [clojure.pprint :refer [pprint]]
@@ -276,7 +276,21 @@
           (cljsc/add-implicit-options)
           (cljsc/process-js-modules))
 
-      (doseq [{:keys [name entry provided no-follow] :as bundle-spec} bundles]
+
+      (let [core-path (str bundle-out "/cljs.core.json")]
+        (io/make-parents core-path)
+        (spit core-path (json/write-str (->> ["cljs/core.cljs.cache.json"
+                                              #_"cljs/core$macros.js"
+                                              "cljs/core$macros.cljc.cache.json"]
+                                             (reduce (fn [m path]
+                                                       (prn :get-resource (str cljsbuild-out "/" path))
+                                                       (assoc m path (-> (io/file
+                                                                           cljsbuild-out path)
+                                                                         (slurp)))) {})))))
+
+      (json/write-str (str bundle-out "/"))
+
+      (doseq [{:keys [name entry provided entry/no-follow] :as bundle-spec} bundles]
         (binding [analyze/*no-follow* (set no-follow)]
           (let [{sources :sources
                  :as     the-bundle} (make-bundle bundle-spec)]
@@ -288,9 +302,9 @@
             ;; - allow :entry-ns in dep-spec for inline namespace declaration
             ;; - handle :dependencies loading
 
-            (let [path (str bundle-out "/" name ".json")]
-              (io/make-parents path)
-              (spit path (json/write-str (dissoc the-bundle :sources))))))))))
+            (spit (str bundle-out "/" name ".json")
+                  (json/write-str (dissoc the-bundle :sources))))))
+      (println :Finished))))
 
 
 (comment
