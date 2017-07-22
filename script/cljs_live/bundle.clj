@@ -115,11 +115,11 @@
     (ana/write-analysis-cache the-ns (ana/cache-file uri (output-dir)))
     (ns->compiled-js the-ns)))
 
-(defn ensure-coll [ls]
-  (if (coll? ls) ls [ls]))
+(defn ensure-set [ls]
+  (if (coll? ls) ls (conj #{} ls)))
 
 (defn get-macro-deps [entry]
-  (doall (->> (ensure-coll entry)
+  (doall (->> (ensure-set entry)
               (mapcat #(analyze/dep-namespaces {:include-macros? true
                                                 :recursive?      true} %))
               (filter analyze/macros-ns?)
@@ -163,7 +163,7 @@
 
 (defn make-bundle [{:keys [entry provided entry/exclude]
                     :or   {exclude #{}}}]
-  (let [entry-macro-deps (set/difference (set (mapcat get-macro-deps (ensure-coll entry)))
+  (let [entry-macro-deps (set/difference (set (mapcat get-macro-deps (ensure-set entry)))
                                          skip-macros)
         _ (prn :entry-macros entry-macro-deps)
         {:keys [macro-deps
@@ -177,8 +177,8 @@
                    :macro-sources       (keys macro-sources)
                    :macro-caches        (keys macro-caches)})
 
-        provided-deps (set (mapcat #(analyze/dep-namespaces {:include-macros? false} %) (ensure-coll provided)))
-        entry-deps (-> (set (mapcat #(analyze/dep-namespaces {:include-macros? true} %) (ensure-coll entry)))
+        provided-deps (set (mapcat #(analyze/dep-namespaces {:include-macros? false} %) (ensure-set provided)))
+        entry-deps (-> (set (mapcat #(analyze/dep-namespaces {:include-macros? true} %) (ensure-set entry)))
                        (disj 'cljs.core)
                        #_(set/union (set macro-deps)))
 
