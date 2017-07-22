@@ -46,7 +46,14 @@
     (f)
     (set! repl/js-eval js-eval)))
 
-
+(defn with-planck-excludes [excludes f]
+  (let [skip-load? repl/skip-load?]
+    ;; prevent load of namespaces in Planck
+    (set! repl/skip-load? (fn [x]
+                            (or (excludes (:name x))
+                                (skip-load? x))))
+    (f)
+    (set! repl/skip-load? skip-load?)))
 
 (defn compile-macro-str [namespace path source]
   (let [res (atom nil)
@@ -144,24 +151,26 @@
                                            (when-not (= warning-type :infer-warning)
                                              (ana/default-warning-handler warning-type env extra)))]]
     (let [{:keys [get-macros
-                  exclude-macros]}
+                  exclude]}
           #_{:get-macros     '#{re-db.core$macros cljs.js$macros cljs-live.eval$macros re-view.core$macros re-db.d$macros maria.user$macros re-db.patterns$macros}
              :exclude-macros '#{cljs.core$macros cljs.js$macros}}
           (-> (string/join (line-seq *in*))
               (r/read-string))]
       (log "Expanding macros...")
-      (let [all-macros (doall (-> (transitive-macro-deps get-macros)
-                                  (set)
-                                  (set/difference exclude-macros)))
-            _ (log "Building bundle...")
-            bundle (reduce (fn [m ns]
-                             (let [[full-path content] (get-macro ns)]
-                               (-> m
-                                   (assoc-in [:macro-sources (replace-ext full-path "$macros.js")]
-                                             content)
-                                   (assoc-in [:macro-caches (replace-ext full-path "$macros.cache.json")]
-                                             (cache-str ns)))))
-                           {:macro-deps all-macros} all-macros)
-            filename (str "/tmp/" (gensym "PLANCK_BUNDLE") (rand-int 9999999999999999))]
-        (spit filename (with-out-str (pr bundle)))
-        (pr (str "___file:" filename "___"))))))
+      (with-planck-excludes
+        exclude
+        #(let [all-macros (doall (-> (transitive-macro-deps get-macros)
+                                     (set)
+                                     (set/difference exclude)))
+               _ (log "Building bundle...")
+               bundle (reduce (fn [m ns]
+                                (let [[full-path content] (get-macro ns)]
+                                  (-> m
+                                      (assoc-in [:macro-sources (replace-ext full-path "$macros.js")]
+                                                content)
+                                      (assoc-in [:macro-caches (replace-ext full-path "$macros.cache.json")]
+                                                (cache-str ns)))))
+                              {:macro-deps all-macros} all-macros)
+               filename (str "/tmp/" (gensym "PLANCK_BUNDLE") (rand-int 9999999999999999))]
+           (spit filename (with-out-str (pr bundle)))
+           (pr (str "___file:" filename "___")))))))

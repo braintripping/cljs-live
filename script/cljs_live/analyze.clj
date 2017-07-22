@@ -74,6 +74,7 @@
 (def ^:dynamic *seen* nil)
 (def ^:dynamic *dependencies* nil)
 (def ^:dynamic *no-follow* #{})
+(def ^:dynamic *exclude* #{})
 
 (def dep-namespaces
   "Recursively analyze a namespace for dependencies, optionally including macros."
@@ -81,9 +82,9 @@
   ;; so that we have that on hand.
   (memoize (fn [{:keys [include-macros?
                         recursive?]
-                 :or {include-macros? false
-                      recursive? true}
-                 :as dep-opts} ns]
+                 :or   {include-macros? false
+                        recursive?      true}
+                 :as   dep-opts} ns]
              (if-not *seen*
                (binding [*seen* (atom #{})]
                  (dep-namespaces dep-opts ns))
@@ -152,11 +153,11 @@
                                                           (.close ^Reader rdr)))))))]
 
                        (when-let [fresh-deps (and recursive?
-                                                  (not (contains? *no-follow* ns))
-                                                  (set/difference next-deps @*seen*))]
+                                                  (not (*no-follow* ns))
+                                                  (set/difference next-deps @*seen* *exclude*))]
                          (mapv (partial dep-namespaces dep-opts) fresh-deps))
                        (swap! *seen* into next-deps)
-                       @*seen*)
+                       (set/difference @*seen* *exclude*))
                      #_(println "No source found for: " ns)))))))
 
 (defn cljs-resource->ijs [rsrc opts]

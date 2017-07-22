@@ -143,14 +143,15 @@
 
 (defn compile-macros
   "Delegates self-host macro compilation to Planck."
-  [namespaces exclude]
+  [{get-macros :get-macros
+    exclude    :exclude}]
   (let [{:keys [out
                 exit
                 err] :as planck-result} (shell/sh "planck"
                                                   "-c" (get-classpath)
                                                   "-m" "cljs-live.compile-macros-planck"
-                                                  :in (with-out-str (prn {:get-macros     namespaces
-                                                                          :exclude-macros (set/union skip-macros (set exclude))}))
+                                                  :in (with-out-str (prn {:get-macros get-macros
+                                                                          :exclude    (set/union skip-macros (set exclude))}))
                                                   :out-enc "UTF-8")]
     (if-let [filename (second (re-find #"___file:(.*)___" out))]
       (r/read-string (slurp filename))
@@ -160,12 +161,14 @@
   (try (slurp f)
        (catch Exception e nil)))
 
-(defn make-bundle [{:keys [entry provided exclude]}]
+(defn make-bundle [{:keys [entry provided entry/exclude]
+                    :or   {exclude #{}}}]
   (let [entry-macro-deps (set/difference (get-macro-deps entry) skip-macros)
         _ (prn :entry-macros entry-macro-deps)
         {:keys [macro-deps
                 macro-sources
-                macro-caches] :as compile-result} (compile-macros entry-macro-deps exclude)
+                macro-caches] :as compile-result} (compile-macros {:get-macros entry-macro-deps
+                                                                   :exclude    exclude})
         _ (prn :_entry entry :_provided provided)
         _ (pprint {:ks                  (keys compile-result)
                    :macro-deps          macro-deps
@@ -290,8 +293,9 @@
 
       (json/write-str (str bundle-out "/"))
 
-      (doseq [{:keys [name entry provided entry/no-follow] :as bundle-spec} bundles]
-        (binding [analyze/*no-follow* (set no-follow)]
+      (doseq [{:keys [name entry provided entry/no-follow entry/exclude] :as bundle-spec} bundles]
+        (binding [analyze/*no-follow* (set no-follow)
+                  analyze/*exclude* (set exclude)]
           (let [{sources :sources
                  :as     the-bundle} (make-bundle bundle-spec)]
 

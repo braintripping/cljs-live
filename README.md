@@ -1,33 +1,63 @@
 # CLJS-Live
 
 
-Until 2015, ClojureScript required Java to compile, and therefore only _compiled_ apps could run in a web browser -- we had no `eval` :(. But that changed with the release of the self-hosted compiler :). Today, thanks to tools available in the `cljs.js` namespace, `eval` is easy.
+Until 2015, ClojureScript only ran in _compiled_ mode -- we had no `eval` :(. But that changed with the release of the self-hosted compiler :). Today, thanks to tools available in the `cljs.js` namespace, `eval` is easy. This is of particular interest for those of us interested in experimenting with new ideas for editing environments.
 
-But what is not easy is _dependency management_ in this new environment. In traditional Clojure, the compiler knows how to search the current `classpath` to find source files. But what happens in a browser, where there is no classpath? How do we make dependencies available in this new environment?
+But _consuming dependencies_ in this new environment remains an untamed challenge. There are many subtleties that you have to get right in order for a 'live' ClojureScript compiler to co-exist happily alongside a precompiled app. The purpose of this library is to solve these problems.
 
-This is where `cljs-live` steps in. There are two main parts.
+CLJS-Live has two main parts.
 
 ### Part I: create dependency bundles.
 
-Given a file containing dependency information (see the example `live-deps.clj` file), here is our task:
+We start by making a file like this, usually called `live-deps.clj`:
 
-1. Compile all ClojureScript files in provided :source-paths
-2. Based on the transitive dependencies of the `:entry` and ``:provided` namespaces you specify,
-   figure out what to include in the bundle:
-   - analysis caches for all :entry namespaces (transit-encoded)
-   - precompiled javascript files for macros and other non-:provided namespaces
-   - a list of all `:provided` namespaces for each bundle.
-3. Emit a single JSON object with all of the above info
-4. Copy the original source files for every :entry and :provided namespace into another directory (useful for lookups later)
+```clj
+{:cljsbuild-out "resources/public/js/compiled/live-out"
+ :bundles-out   "resources/public/js/bundles"
+ :source-paths  ["src"]
+ :bundles [ { ... YOUR BUNDLES HERE ...} ]}
+```
+
+Then, we fill in the :bundles with a vector of bundle specifications, which look like this:
+
+```clj
+{...
+ :bundles [{:name            my-app.user     ;; determines the bundle's filename
+
+            ;; namespaces to include in the bundle. transitive dependencies will be included.
+            :entry #{my-app.user}
+
+            ;; namespaces already provided in your compiled app.
+            :provided #{my-app.core}
+
+            ;; (optional) namespaces whose dependencies should not be followed/included.
+            :entry/no-follow #{}
+
+            ;; (optional) namespaces that should not be included.
+            :entry/exclude #{}
+            }]
+```
+
+CLJS-Live will attempt to calculate and generate all the files necessary to use your `:entry` namespaces in a self-hosted environment. It then bundles all of this together and emits a single JSON file to the `:bundles-out` directory, and also copies all of the related original source files to a `sources` directory in the same location.
+
+The JSON file is a simple mapping of paths to content. It will contain:
+
+- Analysis cache files for every `:entry` namespace
+- Compiled javascript for all required macro namespaces, as well as any other namespaces that aren't already in the `:provided` build
+- A `"provided"` key with a complete list of namespaces that are expected to be already loaded by the `:provided` app.
 
 ### Part II: consume dependency bundles in the browser.
 
 The second part of `cljs-live` is a small library of functions for use _in the browser_.
 
+**Feeding files to the compiler**
+
 There are two important functions in `cljs-live.compiler` that probably everyone using this tool would use:
 
 * `load-bundles!` downloads precompiled bundles created by the bundle script, and merges them into a single local cache (kind of like a fake 'classpath').
 * `load-fn` can then be passed as the :load function to `cljs.js` eval/compile functions, and will correctly resolve namespaces to the precompiled sources in the bundle cache.
+
+**Eval!**
 
 There are also functions in `cljs-live.eval` that make it easy to manage the eval/compile process:
 
@@ -49,6 +79,11 @@ Specifically, when you call `eval` and `eval-str` you get back a map which inclu
   :source-map      - the base64-encoded source-map string
   :env             - the compile environment, a map containing :ns (current namespace)
 
+### Warning
+
+This code depends on implementation details of specific versions of ClojureScript and Planck and is still quite brittle.
+
+
 ### Example
 
 ;; TODO: update this example
@@ -59,47 +94,7 @@ https://cljs-live.firebaseapp.com
 - [Planck REPL](planck-repl.org)
 - Clojure
 
-### Warning
-
-This code depends on implementation details of specific versions of ClojureScript and Planck and is still quite brittle.
-
-
-### Usage
-
-- In your project directory, create a `live-deps.clj` file. See the [example file](https://github.com/mhuebert/cljs-live/blob/master/live-deps.clj) for options.
-- Run `cljs-live.bundle/build`, passing it a path to a `live-deps` file.
-
-```clj
-{:bundle-out     "resources/public/js/cljs_live"     ;; where to put bundle files + the sources directory
- :cljsbuild-out  "resources/public/js/compiled/out"} ;; an `output-dir` for the cljs-live compile step
- :source-paths   ["src"]
- :bundles        [{:entry           #{my-app.user}           ;; tells cljs-live which namespaces you want to use with the self-hosted compiler
-                   :entry/no-follow #{my-app.some-namespace} ;; tells cljs-live *not* to follow+include the dependencies of these namespaces
-                                                             ;;   (because they are not self-host-compatible, or you are trying to shrink file size0
-                   :provided        #{my-app.core}           ;; tells cljs-live that these namespaces are already provided by the compiled app
-                                                             ;;   (must use :optimizations :simple)
-}]
-```
-
-
-## Modifying the bundle
-
-If you aren't happy with the calculated dependencies, you can manually require or exclude specific namespaces from a bundle by using the following keys:
-
-```clj
-{:require-source      []
- :require-cache       []
- :require-goog        []
- :require-foreign-lib []
-
- :exclude-source      []
- :exclude-cache       []
- :exclude-goog        []
- :exclude-foreign-lib []}
-```
-
-The `cljs-live/compiler` namespace contains a `load-fn` that knows how to read from the resulting bundle.
-
 ### Notes
 
 - Not all macros work in the self-host environment. Mike Fikes, creator of [Planck,](planck-repl.org) is an expert on the topic, so check out his blog! Eg: [ClojureScript Macro Tower and Loop](http://blog.fikesfarm.com/posts/2015-12-18-clojurescript-macro-tower-and-loop.html), [Collapsing Macro Tower](http://blog.fikesfarm.com/posts/2016-03-04-collapsing-macro-tower.html)
+- Figuring out what does and doesn't work in the self-hosted environment can be tricky.
