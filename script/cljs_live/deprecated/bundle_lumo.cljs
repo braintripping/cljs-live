@@ -1,4 +1,4 @@
-(ns cljs-live.scratch.bundle-lumo
+(ns cljs-live.deprecated.bundle-lumo
   (:require
     [lumo.io :as io]
     [lumo.core :refer [eval]]
@@ -6,7 +6,7 @@
     [lumo.js-deps :as js-deps]
     [lumo.classpath :as classpath]
     [lumo.compiler :as compiler]
-    [cljs-live.scratch.analyze-lumo :as analyze]
+    [cljs-live.deprecated.analyze-lumo :as analyze]
     [cljs.js :as cljs]
     [lumo.analyzer :as lumo-ana]
 

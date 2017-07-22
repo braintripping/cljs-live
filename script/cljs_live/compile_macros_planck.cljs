@@ -1,4 +1,4 @@
-(ns cljs-live.scratch.bundle-planck-v2
+(ns cljs-live.compile-macros-planck
   (:require [clojure.string :as string]
             [planck.repl :as repl]
             [cognitect.transit :as t]
@@ -8,7 +8,7 @@
             [planck.js-deps :as js-deps]
             [cljs.tools.reader :as r]
             [cljs.js :as cljsjs]
-            [cljs-live.build-util :as util]
+            [cljs-live.bundle-util :as util]
             [clojure.set :as set]))
 
 (def ^:dynamic debug false)
@@ -73,8 +73,7 @@
              (if error (throw error)
                        [full-path value])))))
 
-(defn macroize-sym [s]
-  (symbol (str s "$macros")))
+
 
 (def get-deps
   (memoize (fn [ana-ns]
@@ -83,7 +82,7 @@
                   (keep identity)
                   (map vals)
                   (apply concat)
-                  (concat (->> ana-ns :require-macros vals (map macroize-sym)))))))
+                  (concat (->> ana-ns :require-macros vals (map util/macroize-ns)))))))
 
 
 (def js-index js-deps/foreign-libs-index)
@@ -116,15 +115,15 @@
          (catch js/Error e nil)))))
 
 
-(defn expand-macro-deps
-  "Get all macro namespaces that are depended upon by entry macro namespaces."
+(defn transitive-macro-deps
+  "Returns dependencies of macro namespaces"
   [entry-macros]
   (let [entry-macros (set entry-macros)]
     (require-macro-namespaces entry-macros)
     (let [additional-macros (seq (filter util/macros-ns? (mapcat transitive-deps entry-macros)))]
       (if (= entry-macros (into entry-macros additional-macros))
         entry-macros
-        (expand-macro-deps (into entry-macros additional-macros))))))
+        (transitive-macro-deps (into entry-macros additional-macros))))))
 
 (defn replace-ext [s ext]
   (as-> s s
@@ -151,7 +150,7 @@
           (-> (string/join (line-seq *in*))
               (r/read-string))]
       (log "Expanding macros...")
-      (let [all-macros (doall (-> (expand-macro-deps get-macros)
+      (let [all-macros (doall (-> (transitive-macro-deps get-macros)
                                   (set)
                                   (set/difference exclude-macros)))
             _ (log "Building bundle...")

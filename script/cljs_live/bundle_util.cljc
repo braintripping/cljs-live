@@ -1,4 +1,4 @@
-(ns cljs-live.build-util
+(ns cljs-live.bundle-util
   (:require [clojure.string :as string]))
 
 (defn macroize-ns [ns]

@@ -1,4 +1,4 @@
-(ns cljs-live.scratch.lumo-scratch
+(ns cljs-live.deprecated.lumo-scratch
   (:require [lumo.cljs-deps :as deps]
             [lumo.closure :as cljsc]
             [lumo.repl :as repl]

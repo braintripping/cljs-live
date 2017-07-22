@@ -1,12 +1,11 @@
-(ns cljs-live.scratch.bundle_v2
+(ns cljs-live.bundle-v2
   (:require [cljs.js-deps :as deps]
             [cljs.closure :as cljsc]
             [clojure.pprint :refer [pprint]]
             [cljs.env :as env]
-            [cljs-live.scratch.analyze :as analyze]
+            [cljs-live.analyze :as analyze]
             [clojure.set :as set]
             [clojure.string :as string]
-            [cljs.build.api]
             [clojure.java.io :as io]
             [cljs.build.api :as build-api]
             [cljs.util :as util]
@@ -93,11 +92,13 @@
   don't need to be self-host compatible, but we still need their analysis caches
   and transitive dependency graphs."
 
-  [{:keys [source-paths bundles cljsbuild-out]}]
-  (doseq [source-path (->> (mapcat :source-paths bundles)
-                           (concat source-paths)
-                           (distinct))]
-    (build-api/build source-path (assoc opts :output-dir cljsbuild-out))))
+  [{:keys [source-paths bundles cljsbuild-out output-dir]}]
+  (let [source-paths (->> (mapcat :source-paths bundles)
+                          (concat source-paths)
+                          (distinct))]
+    #_(apply build-api/output-unoptimized (assoc opts :output-dir (str output-dir "/sources")) source-paths)
+    (doseq [source-path source-paths]
+      (build-api/build source-path (assoc opts :output-dir cljsbuild-out)))))
 
 (defn copy-sources! [sources out]
   (doseq [[path content] sources]
@@ -137,6 +138,7 @@
 
                     ;; including cljs.js$macros causes error:
                     ;; >> No such namespace: cljs.env.macros, could not locate cljs/env/macros.cljs, cljs/env/macros.cljc, or Closure namespace "cljs.env.macros"
+                    ;; -- this was fixed, maybe try removing it with newer version of Planck
                     cljs.js$macros
                     cljs.core$macros})
 
@@ -147,7 +149,7 @@
                 exit
                 err] :as planck-result} (shell/sh "planck"
                                                   "-c" (get-classpath)
-                                                  "-m" "cljs-live.scratch.bundle-planck-v2"
+                                                  "-m" "cljs-live.compile-macros-planck"
                                                   :in (with-out-str (prn {:get-macros     namespaces
                                                                           :exclude-macros (set/union skip-macros (set exclude))}))
                                                   :out-enc "UTF-8")]
@@ -203,11 +205,11 @@
         require-js-source-files (transitive-js-deps require-js-source)
         require-cljs-compiled-files (mapv ns->compiled-js require-cljs-source)
 
-        ;; all sources, uncompiled, for :entry dependencies
-        entry-sources (->> entry-deps
-                           (mapcat dep-paths)
-                           (reduce (fn [m path]
-                                     (assoc m path (slurp (io/resource path)))) {}))]
+        sources-to-copy (->> (set/union entry-deps provided-deps macro-deps)
+                             (mapcat dep-paths)
+                             (reduce (fn [m path]
+                                       (assoc m path (slurp (io/resource path)))) {}))]
+
 
     (merge
 
@@ -239,7 +241,7 @@
 
 
       {:provided provided-deps
-       :sources  entry-sources})))
+       :sources  sources-to-copy})))
 
 
 (defn main [bundle-spec-path]

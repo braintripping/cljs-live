@@ -1,4 +1,4 @@
-(ns cljs-live.scratch.analyze-lumo
+(ns cljs-live.deprecated.analyze-lumo
   (:require [cljs.env :as env]
             [cljs.analyzer :as ana]
             [lumo.repl :as repl]

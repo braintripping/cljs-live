@@ -1,4 +1,4 @@
-(ns cljs-live.scratch.analyze
+(ns cljs-live.analyze
   (:refer-clojure :exclude [ensure])
   (:require [cljs.env :as env :refer [ensure]]
             [cljs.analyzer :as ana]
@@ -7,7 +7,7 @@
             [clojure.set :as set]
             [clojure.string :as string]
             [clojure.java.io :as io]
-            [cljs-live.build-util :refer [macroize-ns demacroize-ns demacroize]])
+            [cljs-live.bundle-util :refer [macroize-ns demacroize-ns demacroize]])
   (:import (java.io Reader File)))
 
 
@@ -69,21 +69,12 @@
            (macroize-dep-map (:use-macros ast)))
          (when include-macros?
            (macroize-dep-map (:require-macros ast)))
+
          (:imports ast)))
 (def ^:dynamic *seen* nil)
 (def ^:dynamic *dependencies* nil)
-
-#_(defn ns-deps
-  ([namespaces ns] (ns-deps namespaces ns #{}))
-  ([namespaces ns the-deps]
-   (prn :the-ns (get namespaces ns))
-   (prn :all-nses (keys namespaces))
-   (let [next-deps (set (vals (ast-deps (get namespaces ns))))
-         new-deps (set/difference next-deps the-deps)]
-     (if (empty? new-deps)
-       the-deps
-       (into the-deps (mapcat #(ns-deps namespaces % the-deps) new-deps))))))
 (def ^:dynamic *no-follow* #{})
+
 (def dep-namespaces
   "Recursively analyze a namespace for dependencies, optionally including macros."
   ;; should use `parse-ns` to get the ast / ijs,
@@ -94,7 +85,7 @@
                       recursive? true}
                  :as dep-opts} ns]
              (if-not *seen*
-               (binding [*seen* (atom #{} #_(set (keys (:cljs.analyzer/namespaces @env/*compiler*))))]
+               (binding [*seen* (atom #{})]
                  (dep-namespaces dep-opts ns))
                (do (assert (symbol? ns))
                    (swap! *seen* conj ns)
