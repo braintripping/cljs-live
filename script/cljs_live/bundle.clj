@@ -65,8 +65,8 @@
   (doseq [{dependencies :dependencies} bundles]
     (some-> dependencies (seq) (alembic.still/distill))))
 
-(defn compile-cljs [src-path output-dir]
-  (api/build src-path {:output-dir     output-dir
+(defn compile-cljs [src-path cljsbuild-out]
+  (api/build src-path {:output-dir     cljsbuild-out
                        :dump-core      false
                        :parallel-build true
                        :source-map     false
@@ -85,11 +85,14 @@
 
 ;(programs planck)
 
-(defn dir-absolute-path [p]
+(defn ensure-dir [p]
   (-> p
       (string/replace #"/$" "")
       (str "/x")
       (io/make-parents))
+  p)
+
+(defn get-absolute-path [p]
   (.getCanonicalPath (io/file (str "./" p))))
 
 
@@ -101,19 +104,26 @@
         _ (do (install-deps! bundle-spec)
               (compile-sources! bundle-spec))
         bundle-spec (-> bundle-spec
-                        (update :bundles #(mapv (fn [{:keys [provided] :as bundle}]
+                        (update :bundles #(mapv (fn [{:keys [provided require] :as bundle}]
                                                   (-> bundle
                                                       (assoc :provided/transitive (transitive-deps provided))
                                                       (set/rename-keys {:provided :provided/entry}))) %))
-                        (update :cljsbuild-out dir-absolute-path)
-                        (update :output-dir dir-absolute-path)
+                        (update :cljsbuild-out (comp ensure-dir get-absolute-path))
+                        (update :output-dir (comp ensure-dir get-absolute-path))
                         (assoc :goog-dependencies (js-deps/goog-dependencies)))
-        {:keys [exit out err]} (shell/sh "planck"
-                                         "-k" (mk-tmp-dir!)
-                                         "-c" (get-classpath)
-                                         "-m" "cljs-live.bundle-planck"
-                                         :in (with-out-str (prn bundle-spec)))]
+        {:keys [exit out err]}
+        #_(shell/sh "lumo"
+                    "-k" (mk-tmp-dir!)
+                    "-c" (get-classpath)
+                    "-m" "cljs-live.bundle-lumo"
+                    :in (with-out-str (prn bundle-spec)))
+        (shell/sh "planck"
+                  "-k" (mk-tmp-dir!)
+                  "-c" (get-classpath)
+                  "-m" "cljs-live.bundle-planck"
+                  :in (with-out-str (prn bundle-spec)))]
 
     (some->> exit (println :exit))
+    (some->> out (println :out))
     (some->> err (println :err))
-    (some->> out (println :out))))
+    ))

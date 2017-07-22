@@ -157,18 +157,6 @@
                      (reduce (fn [m namespace]
                                (assoc m (munge (str namespace)) file)) {} provides))) {} (vals @js-index)))
 
-(defn foreign-lib-src [dep]
-  (apply str (->> (js-files-to-load dep)
-                  (map resource))))
-;
-;(and (= name 'cljs.env.macros) macros)
-;(and (= name 'cljs.analyzer.macros) macros)
-;(and (= name 'cljs.compiler.macros) macros)
-;(and (= name 'cljs.js) macros)
-;(and (= name 'cljs.pprint) macros)
-;(and (= name 'cljs.reader) macros)
-;(and (= name 'cljs.tools.reader.reader-types) macros)
-
 (defn compile-str [namespace source]
   (let [res (atom nil)
         _ (cljs.js/compile-str repl/st source (str "macro-compile-" namespace) #(reset! res %))]
@@ -191,7 +179,7 @@
 
 (defn macro-str
   ;; TODO
-  ;; look up macro resolution algo
+  ;; look up macro resolution algorithm
   [namespace]
   (let [path (string/replace (ns->path namespace) "$macros" "")
         cljs-clojure-variants (cond (string/starts-with? path "cljs/") [path (string/replace path #"^cljs/" "clojure/")]
@@ -226,7 +214,7 @@
 
 
 (defn patch-planck-js-eval
-  "Instrument planck's js-eval to ignore exceptions; we are only interested in build artefacts,
+  "Instrument planck's js-eval to ignore exceptions; we are only interested in build artifacts,
   and some runtime errors occur because Planck is not a browser environment."
   []
   (cljsjs/eval repl/st
