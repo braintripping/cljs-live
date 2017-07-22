@@ -92,11 +92,10 @@
   don't need to be self-host compatible, but we still need their analysis caches
   and transitive dependency graphs."
 
-  [{:keys [source-paths bundles cljsbuild-out output-dir]}]
+  [{:keys [source-paths bundles cljsbuild-out]}]
   (let [source-paths (->> (mapcat :source-paths bundles)
                           (concat source-paths)
                           (distinct))]
-    #_(apply build-api/output-unoptimized (assoc opts :output-dir (str output-dir "/sources")) source-paths)
     (doseq [source-path source-paths]
       (build-api/build source-path (assoc opts :output-dir cljsbuild-out)))))
 
@@ -262,7 +261,7 @@
         ;(prn :the-s (cljsc/cljs-source-for-namespace cljs-ns))
         (prn :did-it-work? (ns->compiled-js cljs-ns) (safe-slurp (ns->compiled-js cljs-ns)))
         (ns->compiled-js cljs-ns)))
-  (let [{:keys [output-dir
+  (let [{:keys [bundle-out
                 cljsbuild-out
                 bundles] :as bundle-spec} (-> bundle-spec-path
                                               (slurp)
@@ -283,13 +282,13 @@
                  :as     the-bundle} (make-bundle bundle-spec)]
 
             ;; copy sources to output-dir
-            (copy-sources! sources (str output-dir "/sources"))
+            (copy-sources! sources (str bundle-out "/sources"))
 
             ;; TODO
             ;; - allow :entry-ns in dep-spec for inline namespace declaration
             ;; - handle :dependencies loading
 
-            (let [path (str output-dir "/" name ".json")]
+            (let [path (str bundle-out "/" name ".json")]
               (io/make-parents path)
               (spit path (json/write-str (dissoc the-bundle :sources))))))))))
 
