@@ -6,10 +6,15 @@
             [cljs.closure :as cljsc]
             [clojure.set :as set]
             [clojure.string :as string]
+            [clojure.pprint :refer [pprint]]
             [clojure.java.io :as io]
-            [cljs-live.bundle-util :refer [macroize-ns demacroize-ns demacroize]])
+            [cljs-live.bundle-util :refer [macroize-ns demacroize-ns demacroize]]
+            [cljs.js-deps :as deps])
   (:import (java.io Reader File)))
 
+(defn js-exists? [ns]
+  (or (get-in @env/*compiler* [:js-dependency-index (str ns)])
+      (deps/find-classpath-lib ns)))
 
 (defn macroize-dep-map [m]
   (reduce-kv (fn [m k v]
@@ -62,7 +67,7 @@
                 (if-let [res (io/resource relpath)]
                   {:relative-path relpath :uri res :ext :clj})))))))))
 
-(defn ast-deps [include-macros? ast]
+(defn ast-dep-map [include-macros? ast]
   (merge (:uses ast)
          (:requires ast)
          (when include-macros?
@@ -71,10 +76,74 @@
            (macroize-dep-map (:require-macros ast)))
 
          (:imports ast)))
+
+(defn ast-deps [include-macros? ast]
+  (-> (vals (ast-dep-map include-macros? ast))
+      (set)
+      (conj 'cljs.core)))
+
 (def ^:dynamic *seen* nil)
 (def ^:dynamic *dependencies* nil)
 (def ^:dynamic *no-follow* #{})
-(def ^:dynamic *exclude* #{})
+(def ^:dynamic *exclude* #{'cljs.core})
+(def ^:dynamic *include-macros* true)
+(def ^:dynamic *recursive* true)
+
+(def cache-map
+  (memoize (fn [namespace]
+             (get-in @env/*compiler* [:cljs.analyzer/namespaces namespace]))))
+
+(defn transitive-deps*
+  "Given a dep symbol to load, returns a topologically sorted sequence of deps to load, in load order."
+  ([dep-name] (transitive-deps* #{dep-name} dep-name))
+  ([found dep-name]
+   (let [new-deps (-> (ast-deps *include-macros* (cache-map dep-name))
+                      (set/difference found *exclude*))
+         found (into found new-deps)]
+     (cond-> found
+             (and *recursive*
+                  (not (*no-follow* dep-name))) (into (mapcat (partial transitive-deps* found) new-deps))))))
+
+(defn transitive-deps [{:keys [include-macros?
+                               recursive?]
+                        :or   {include-macros? false
+                               recursive?      true}} ns]
+  (binding [*include-macros* (or include-macros? false)]
+    (transitive-deps* ns)))
+
+(def parse-ns-deps
+  (memoize (fn [{:keys [include-macros?
+                        recursive?]
+                 :or   {include-macros? false
+                        recursive?      true}} ns]
+             (if-let [src (some-> (cljs-source-for-namespace include-macros? ns)
+                                    :relative-path
+                                    (io/resource))]
+               (binding [ana/*cljs-ns* 'cljs.user
+                         ana/*cljs-file* src
+                         ana/*macro-infer* true
+                         ana/*analyze-deps* false
+                         ana/*load-macros* include-macros?]
+                 (let [rdr (when-not (sequential? src) (io/reader src))]
+                   (try
+                     (loop [forms (if rdr
+                                    (ana/forms-seq* rdr (source-path src))
+                                    src)
+                            ret #{}]
+                       (if (seq forms)
+                         (let [ast (ana/no-warn (ana/analyze (ana/empty-env) (first forms) nil))
+                               deps (ast-deps include-macros? ast)]
+                           (case (:op ast)
+                             :ns deps
+                             :ns*
+                             (recur (rest forms) (into ret deps))
+                             ret))
+                         ret))
+                     (finally
+                       (when rdr
+                         (.close ^Reader rdr))))))
+               (when-not (js-exists? ns)
+                 (println (str "Warning: no source to analyze for dep: " ns)))))))
 
 (def dep-namespaces
   "Recursively analyze a namespace for dependencies, optionally including macros."
@@ -89,76 +158,23 @@
                (binding [*seen* (atom #{})]
                  (dep-namespaces dep-opts ns))
                (do (assert (symbol? ns))
-                   (swap! *seen* conj ns)
-                   (if-let [src (some-> (cljs-source-for-namespace include-macros? ns)
-                                        :relative-path
-                                        (io/resource))]
-                     (let [opts {:analyze-deps false
-                                 :load-macros  include-macros?
-                                 :restore      false}
-                           next-deps (:requires (binding [ana/*cljs-ns* 'cljs.user
-                                                          ana/*cljs-file* src
-                                                          ana/*macro-infer* true
-                                                          ana/*analyze-deps* (:analyze-deps opts)
-                                                          ana/*load-macros* (:load-macros opts)]
-                                                  (let [rdr (when-not (sequential? src) (io/reader src))]
-                                                    (try
-                                                      (loop [forms (if rdr
-                                                                     (ana/forms-seq* rdr (source-path src))
-                                                                     src)
-                                                             ret (merge
-                                                                   {:source-file  (when rdr src)
-                                                                    :source-forms (when-not rdr src)
-                                                                    :requires     (cond-> #{'cljs.core}
-                                                                                          (get-in @env/*compiler* [:options :emit-constants])
-                                                                                          (conj ana/constants-ns-sym))})]
-                                                        (if (seq forms)
-                                                          (let [env (ana/empty-env)
-                                                                ast (ana/no-warn (ana/analyze env (first forms) nil))]
-                                                            (cond
-                                                              (= :ns (:op ast))
-                                                              (let [ns-name (:name ast)
-                                                                    ns-name (if (and (= 'cljs.core ns-name)
-                                                                                     (= "cljc" (util/ext src)))
-                                                                              'cljs.core$macros
-                                                                              ns-name)
-                                                                    deps (ast-deps include-macros? ast)]
-                                                                (merge
-                                                                  {:ns           (or ns-name 'cljs.user)
-                                                                   :provides     [ns-name]
-                                                                   :requires     (if (= 'cljs.core ns-name)
-                                                                                   (set (vals deps))
-                                                                                   (cond-> (conj (set (vals deps)) 'cljs.core)
-                                                                                           (get-in @env/*compiler* [:options :emit-constants])
-                                                                                           (conj ana/constants-ns-sym)))
-                                                                   :source-file  (when rdr src)
-                                                                   :source-forms (when-not rdr src)
-                                                                   :ast          ast
-                                                                   :macros-ns    (string/ends-with? (str ns-name) "$macros")}))
-
-                                                              (= :ns* (:op ast))
-                                                              (let [deps (ast-deps include-macros? ast)]
-                                                                (recur (rest forms)
-                                                                       (cond-> (update-in ret [:requires] into (set (vals deps)))
-                                                                               ;; we need to defer generating the user namespace
-                                                                               ;; until we actually need or it will break when
-                                                                               ;; `src` is a sequence of forms - António Monteiro
-                                                                               (not (:ns ret))
-                                                                               (assoc :ns (ana/gen-user-ns src) :provides [(ana/gen-user-ns src)]))))
-
-                                                              :else ret))
-                                                          ret))
-                                                      (finally
-                                                        (when rdr
-                                                          (.close ^Reader rdr)))))))]
-
+                   (when-not (*exclude* ns)
+                     (swap! *seen* conj ns)
+                     (let [cached-deps (when (cache-map ns)
+                                         (ast-deps include-macros? (cache-map ns)))
+                           next-deps (parse-ns-deps dep-opts ns)]
+                       (when (and cached-deps next-deps
+                                  (not= cached-deps next-deps))
+                         (prn "Cached deps not equal for " ns)
+                         (pprint {:ns            ns
+                                  :deps-by-cache cached-deps
+                                  :deps-by-ana   next-deps}))
                        (when-let [fresh-deps (and recursive?
                                                   (not (*no-follow* ns))
-                                                  (set/difference next-deps @*seen* *exclude*))]
+                                                  (set/difference next-deps @*seen*))]
                          (mapv (partial dep-namespaces dep-opts) fresh-deps))
                        (swap! *seen* into next-deps)
-                       (set/difference @*seen* *exclude*))
-                     #_(println "No source found for: " ns)))))))
+                       (set/difference @*seen*))))))))
 
 (defn cljs-resource->ijs [rsrc opts]
   (ana/parse-ns rsrc opts))

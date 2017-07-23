@@ -82,10 +82,6 @@
 (defn ns->compiled-js [ns]
   (cljsc/target-file-for-cljs-ns ns (output-dir)))
 
-(defn js-exists? [ns]
-  (or (get-in @env/*compiler* [:js-dependency-index (str ns)])
-      (deps/find-classpath-lib ns)))
-
 (defn js-dep-resource [js-dep]
   (or (some-> (or (:file-min js-dep)
                   (:file js-dep))
@@ -95,9 +91,9 @@
 
 (defn dep-kind [ns]
   (cond
-    (contains? '#{cljs.core.constants} ns) nil
+    (contains? '#{cljs.core.constants} ns) (throw (Exception. "cljs.core.constants!!!!"))
     (analyze/macros-ns? ns) :macro
-    (js-exists? ns) :js
+    (analyze/js-exists? ns) :js
     :else :cljs))
 
 (defn js-dep-path [js-dep]
@@ -148,8 +144,7 @@
 
 (defn get-macro-deps [entry]
   (doall (->> (ensure-set entry)
-              (mapcat #(analyze/dep-namespaces {:include-macros? true
-                                                :recursive?      true} %))
+              (mapcat #(analyze/dep-namespaces {:include-macros? true} %))
               (filter analyze/macros-ns?)
               (set))))
 
@@ -222,11 +217,11 @@
         ;; macro namespaces must be handled by self-hosted compiler step.
         require-cljs-cache (->> entry-deps
                                 (filter (complement analyze/macros-ns?))
-                                (filter (complement js-exists?)))
+                                (filter (complement analyze/js-exists?)))
 
         ;; sources are required for namespaces in :entry which are not :provided.
         require-*-source (set/difference entry-deps provided-deps)
-        _ (prn :REQUIRE_SOURCE (sort require-*-source))
+        _ (prn "Require source files: " (sort require-*-source))
 
 
         ;; source files are grouped by :js, :macro, and :cljs.
@@ -310,13 +305,16 @@
 
     (binding [env/*compiler* live-st]
       (swap! env/*compiler* assoc-in [:options :output-dir] cljsbuild-out)
-      (compile-bundle-sources bundle-spec)
-      (prn :names (keys (get-in @env/*compiler* [:cljs.analyzer/namespaces])))
-
-      (-> opts
-          (cljsc/maybe-install-node-deps!)
-          (cljsc/add-implicit-options)
-          (cljsc/process-js-modules))
+      (prn "Compile...")
+      (time (compile-bundle-sources bundle-spec))
+      ;; TODO
+      ;; write temporary namespaces into the sources dir so that when we compile,
+      ;; we include everything from the live-deps.
+      (prn "Make opts...")
+      (time (-> opts
+                (cljsc/maybe-install-node-deps!)
+                (cljsc/add-implicit-options)
+                (cljsc/process-js-modules)))
 
 
       (let [core-path (str bundle-out "/cljs.core.json")]
@@ -331,7 +329,7 @@
 
       (doseq [{:keys [name entry/no-follow entry/exclude] :as bundle-spec} bundles]
         (binding [analyze/*no-follow* (set no-follow)
-                  analyze/*exclude* (set exclude)]
+                  analyze/*exclude* (into analyze/*exclude* (set exclude))]
           (let [{sources :sources
                  :as     the-bundle} (make-bundle bundle-spec)]
 
