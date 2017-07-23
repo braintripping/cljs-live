@@ -82,6 +82,10 @@
 (defn ns->compiled-js [ns]
   (cljsc/target-file-for-cljs-ns ns (output-dir)))
 
+(defn js-exists? [ns]
+  (or (get-in @env/*compiler* [:js-dependency-index (str ns)])
+      (deps/find-classpath-lib ns)))
+
 (defn js-dep-resource [js-dep]
   (or (some-> (or (:file-min js-dep)
                   (:file js-dep))
@@ -91,7 +95,7 @@
 
 (defn dep-kind [ns]
   (cond
-    (contains? '#{cljs.core.constants} ns) (throw (Exception. "cljs.core.constants!!!!"))
+    (contains? '#{cljs.core.constants} ns) nil
     (analyze/macros-ns? ns) :macro
     (analyze/js-exists? ns) :js
     :else :cljs))
@@ -134,47 +138,39 @@
         source (cljsc/cljs-source-for-namespace the-ns)
         uri (:uri source)
         inputs (build-api/inputs uri)
-        compile (partial build-api/compile opts)
-        result (compile inputs)]
-    (ana/write-analysis-cache the-ns (ana/cache-file uri (output-dir)))
-    (ns->compiled-js the-ns)))
+        result (try (build-api/compile opts inputs)
+                    (catch Exception e
+                      (prn "Failed to compile: " the-ns)
+                      nil))]
+    (when result
+      (ana/write-analysis-cache the-ns (ana/cache-file uri (output-dir)))
+      (ns->compiled-js the-ns))))
 
 (defn ensure-set [ls]
   (if (coll? ls) (set ls) (conj #{} ls)))
 
 (defn get-macro-deps [entry]
   (doall (->> (ensure-set entry)
-              (mapcat #(analyze/dep-namespaces {:include-macros? true} %))
+              (mapcat #(analyze/parse-ana-deps {:include-macros? true} %))
               (filter analyze/macros-ns?)
               (set))))
 
-(def skip-macros '#{#_clojure.template$macros
-                    #_cljs.pprint$macros
-                    #_cljs.js$macros
-                    #_cljs.analyzer.macros$macros
-                    #_cljs.analyzer$macros
-                    #_cljs.tools.reader.reader-types$macros
-                    #_cljs.test$macros
-                    #_cljs.reader$macros
-                    #_cljs.compiler.macros$macros
-
-                    ;; including cljs.js$macros causes error:
-                    ;; >> No such namespace: cljs.env.macros, could not locate cljs/env/macros.cljs, cljs/env/macros.cljc, or Closure namespace "cljs.env.macros"
-                    ;; -- this was fixed, maybe try removing it with newer version of Planck
-                    cljs.js$macros
-                    cljs.core$macros})
+(def exclude-macros '#{
+                       ;; including cljs.js$macros causes error:
+                       ;; >> No such namespace: cljs.env.macros, could not locate cljs/env/macros.cljs, cljs/env/macros.cljc, or Closure namespace "cljs.env.macros"
+                       ;; -- this was fixed, maybe try removing it with newer version of Planck
+                       cljs.js$macros
+                       cljs.core$macros})
 
 (defn compile-macros
   "Delegates self-host macro compilation to Planck."
-  [{get-macros :get-macros
-    exclude    :exclude}]
+  [macro-spec]
   (let [{:keys [out
                 exit
                 err] :as planck-result} (shell/sh "planck"
                                                   "-c" (get-classpath)
                                                   "-m" "cljs-live.compile-macros-planck"
-                                                  :in (with-out-str (prn {:get-macros get-macros
-                                                                          :exclude    (set/union skip-macros (set exclude))}))
+                                                  :in (with-out-str (prn macro-spec))
                                                   :out-enc "UTF-8")]
     (if-let [filename (second (re-find #"___file:(.*)___" out))]
       (r/read-string (slurp filename))
@@ -189,35 +185,34 @@
        (catch Exception e nil)))
 
 (defn make-bundle [{:keys [entry provided entry/exclude name]
-                    :or   {exclude #{}}}]
+                    :or   {exclude #{}}
+                    :as   bundle}]
+
   (let [entry-macro-deps (set/difference (set (mapcat get-macro-deps (ensure-set entry)))
-                                         skip-macros)
-        _ (prn :entry-macros entry-macro-deps)
+                                         exclude-macros)
+        _ (println "Begin bundle:")
+        _ (pprint bundle)
+        _ (prn "Macros: ")
+        _ (pprint entry-macro-deps)
+
         {:keys [macro-deps
                 macro-sources
-                macro-caches] :as compile-result} (compile-macros {:get-macros entry-macro-deps
-                                                                   :exclude    exclude})
-        _ (prn :_entry entry :_provided provided)
-        _ (pprint {:ks                  (keys compile-result)
-                   :macro-deps          macro-deps
-                   :expanded-macro-deps (set/difference macro-deps entry-macro-deps)
-                   :macro-sources       (keys macro-sources)
-                   :macro-caches        (keys macro-caches)})
+                macro-caches] :as compile-result} (compile-macros {:entry/macros         entry-macro-deps
+                                                                   :entry/exclude-macros (into exclude-macros exclude)})
 
-        provided-deps (set (mapcat #(analyze/dep-namespaces {:include-macros? false} %) (ensure-set provided)))
-        entry-deps (-> (set (mapcat #(analyze/dep-namespaces {:include-macros? true} %) (ensure-set entry)))
-                       (disj 'cljs.core)
-                       #_(set/union (set macro-deps)))
+        _ (pprint {:macro-deps          macro-deps
+                   :macro-deps-expanded (set/difference macro-deps entry-macro-deps)})
 
-        _ (pprint {:entry    entry
-                   :provided provided})
+        provided-deps (set (mapcat #(analyze/transitive-ana-deps {:include-macros? false} %) (ensure-set provided)))
+        entry-deps (-> (set (mapcat #(analyze/transitive-ana-deps {:include-macros? false} %) (ensure-set entry)))
+                       (disj 'cljs.core))
 
         ;; caches are bundled for all non-macro namespaces in :entry.
         ;; caches do not exist for non-Clojure(Script) namespaces.
         ;; macro namespaces must be handled by self-hosted compiler step.
         require-cljs-cache (->> entry-deps
                                 (filter (complement analyze/macros-ns?))
-                                (filter (complement analyze/js-exists?)))
+                                (filter (complement js-exists?)))
 
         ;; sources are required for namespaces in :entry which are not :provided.
         require-*-source (set/difference entry-deps provided-deps)
@@ -230,15 +225,13 @@
         ;; :macro sources are simply recorded for future processing by a self-hosted compiler step.
         {require-js-source   :js
          require-cljs-source :cljs
-         require-macros      :macro} (group-by dep-kind require-*-source)
+         _require-macros     :macro} (group-by dep-kind require-*-source)
 
         require-js-source-files (transitive-js-deps require-js-source)
-        require-cljs-compiled-files (mapv ns->compiled-js require-cljs-source)
 
         sources-to-copy (->> (set/union entry-deps provided-deps macro-deps)
                              (mapcat dep-paths)
                              (reduce (fn [m path]
-
                                        (if-let [contents (safe-slurp-resource path)]
                                          (assoc m path contents)
                                          (do
@@ -257,21 +250,26 @@
                            the-file (if (safe-slurp the-file)
                                       the-file
                                       (compile-single-cljs-namespace the-ns))
-                           contents (safe-slurp the-file)]
-                       (assoc m (resource-relpath the-file)
-                                contents))) {}))
+                           contents (when the-file (safe-slurp the-file))]
+                       (cond-> m
+                               contents (assoc (resource-relpath the-file)
+                                               contents)))) {}))
 
       (->> require-cljs-cache
            (reduce (fn [m ns]
                      (let [the-cache-file (cache-file ns)
-                           contents (slurp the-cache-file)]
-                       (assoc m (resource-relpath the-cache-file)
-                                contents))) {}))
+                           contents (safe-slurp the-cache-file)]
+                       (cond-> m
+                               contents (assoc (resource-relpath the-cache-file)
+                                               contents)))) {}))
 
       (->> require-js-source-files
            (reduce (fn [m js-dep]
+                     (prn :the-js-dep js-dep)
                      (assoc m (js-dep-path js-dep)
-                              (slurp (js-dep-resource js-dep)))) {}))
+                              ;; add goog.provide statements.
+                              (str (cljsc/build-provides (map munge (:provides js-dep)))
+                                   (slurp (js-dep-resource js-dep))))) {}))
 
 
 
@@ -329,7 +327,7 @@
 
       (doseq [{:keys [name entry/no-follow entry/exclude] :as bundle-spec} bundles]
         (binding [analyze/*no-follow* (set no-follow)
-                  analyze/*exclude* (into analyze/*exclude* (set exclude))]
+                  analyze/*exclude* (set exclude)]
           (let [{sources :sources
                  :as     the-bundle} (make-bundle bundle-spec)]
 

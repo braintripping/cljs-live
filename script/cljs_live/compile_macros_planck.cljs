@@ -9,9 +9,10 @@
             [cljs.tools.reader :as r]
             [cljs.js :as cljsjs]
             [cljs-live.bundle-util :as util]
-            [clojure.set :as set]))
+            [clojure.set :as set]
+            [cljs-live.planck-hacks :as hacks]))
 
-(def ^:dynamic debug false)
+(def ^:dynamic debug true)
 
 (defn log [& args]
   (when debug (apply println args)))
@@ -26,34 +27,6 @@
       (let [w (t/writer :json)]
         (t/write w (realize-lazy-map x))))))
 
-(defn safe-js-eval [source source-url]
-  (if source-url
-    (let [exception (js/PLANCK_EVAL source source-url)]
-      (when exception
-        ;; ignore exceptions, we only want build artifacts
-        #_(throw exception)))
-    (try (js/eval source)
-         (catch js/Error e
-           ;; ignore exceptions, we only want build artifacts
-           nil))))
-
-(defn with-patched-eval
-  "Instrument planck's js-eval to ignore exceptions; we are only interested in build artifacts,
-  and some runtime errors occur because Planck is not a browser environment."
-  [f]
-  (let [js-eval repl/js-eval]
-    (set! repl/js-eval safe-js-eval)
-    (f)
-    (set! repl/js-eval js-eval)))
-
-(defn with-planck-excludes [excludes f]
-  (let [skip-load? repl/skip-load?]
-    ;; prevent load of namespaces in Planck
-    (set! repl/skip-load? (fn [x]
-                            (or (excludes (:name x))
-                                (skip-load? x))))
-    (f)
-    (set! repl/skip-load? skip-load?)))
 
 (defn compile-macro-str [namespace path source]
   (let [res (atom nil)
@@ -63,24 +36,23 @@
 
 (defn get-macro
   [namespace]
-  (let [path (string/replace (util/ns->path namespace) "$macros" "")
-        cljs-clojure-variants (cond (string/starts-with? path "cljs/") [path (string/replace path #"^cljs/" "clojure/")]
-                                    (string/starts-with? path "clojure/") [path (string/replace path #"^clojure/" "cljs/")]
-                                    :else [path])]
+  (let [path (-> namespace (util/demacroize-ns) (util/ns->path))
+        cljs-clojure-variants (cond-> [path]
+                                      (string/starts-with? path "cljs/") (conj (string/replace path #"^cljs/" "clojure/"))
+                                      (string/starts-with? path "clojure/") (conj (string/replace path #"^clojure/" "cljs/")))]
     (first (for [path cljs-clojure-variants
-                 [$macros? ext] [[true "clj"]
+                 [$macros? ext] [[false "clj"]
+                                 [true "clj"]
                                  [true "cljc"]
-                                 [false "clj"]
                                  [false "cljc"]]
                  :let [full-path (str path (when $macros? "$macros") "." ext)
                        _ (log "get-macro at path: " full-path)
                        contents (some-> (io/resource full-path) (slurp))]
                  :when contents
-                 :let [{:keys [value error]} (compile-macro-str namespace full-path contents)]]
+                 :let [{:keys [value error]}
+                       (compile-macro-str namespace full-path contents)]]
              (if error (throw error)
                        [full-path value])))))
-
-
 
 (def get-deps
   (memoize (fn [ana-ns]
@@ -115,7 +87,7 @@
                (cljs.js/eval repl/st the-form {} #(when-let [e (:error %)] (println e)))))))
 
 (defn require-macro-namespaces [namespaces]
-  (with-patched-eval
+  (hacks/with-patched-eval
     #(doseq [ns namespaces]
        (try
          (require-a-macro (util/demacroize-ns ns))
@@ -124,13 +96,14 @@
 
 (defn transitive-macro-deps
   "Returns dependencies of macro namespaces"
-  [entry-macros]
-  (let [entry-macros (set entry-macros)]
-    (require-macro-namespaces entry-macros)
-    (let [additional-macros (seq (filter util/macros-ns? (mapcat transitive-deps entry-macros)))]
-      (if (= entry-macros (into entry-macros additional-macros))
-        entry-macros
-        (transitive-macro-deps (into entry-macros additional-macros))))))
+  [exclude-macros entry-macros]
+  (require-macro-namespaces entry-macros)
+  (let [additional-macros (-> (filter util/macros-ns? (mapcat transitive-deps entry-macros))
+                              (set)
+                              (set/difference exclude-macros))]
+    (if (= entry-macros (into entry-macros additional-macros))
+      entry-macros
+      (transitive-macro-deps exclude-macros (into entry-macros additional-macros)))))
 
 (defn replace-ext [s ext]
   (as-> s s
@@ -143,34 +116,37 @@
   (-> (get-in @repl/st [:cljs.analyzer/namespaces ns])
       (map->transit)))
 
+(defn warning-handler [warning-type env extra]
+  (case warning-type
+    :infer-warning nil
+    :undeclared-ns (log "Undeclared namespace: " (:ns-sym extra))
+    :undeclared-var (log (str "Undeclared var: " (:prefix extra) "." (:suffix extra)))
+    (do
+      (prn warning-type extra)
+      (ana/default-warning-handler warning-type env extra))))
+
 (defn -main
   "Given a list of macro namespaces, return the compiled source for each,
   and list of transitive dependencies for all."
   []
-  (binding [ana/*cljs-warning-handlers* [(fn [warning-type env extra]
-                                           (when-not (= warning-type :infer-warning)
-                                             (ana/default-warning-handler warning-type env extra)))]]
-    (let [{:keys [get-macros
-                  exclude]}
-          #_{:get-macros     '#{re-db.core$macros cljs.js$macros cljs-live.eval$macros re-view.core$macros re-db.d$macros maria.user$macros re-db.patterns$macros}
-             :exclude-macros '#{cljs.core$macros cljs.js$macros}}
-          (-> (string/join (line-seq *in*))
-              (r/read-string))]
-      (log "Expanding macros...")
-      (with-planck-excludes
-        exclude
-        #(let [all-macros (doall (-> (transitive-macro-deps get-macros)
-                                     (set)
-                                     (set/difference exclude)))
-               _ (log "Building bundle...")
-               bundle (reduce (fn [m ns]
-                                (let [[full-path content] (get-macro ns)]
-                                  (-> m
-                                      (assoc-in [:macro-sources (replace-ext full-path "$macros.js")]
-                                                content)
-                                      (assoc-in [:macro-caches (replace-ext full-path "$macros.cache.json")]
-                                                (cache-str ns)))))
-                              {:macro-deps all-macros} all-macros)
-               filename (str "/tmp/" (gensym "PLANCK_BUNDLE") (rand-int 9999999999999999))]
-           (spit filename (with-out-str (pr bundle)))
-           (pr (str "___file:" filename "___")))))))
+  (binding [ana/*cljs-warning-handlers* [warning-handler]]
+    (let [{:keys [entry/macros
+                  entry/exclude-macros]} (-> (string/join (line-seq *in*))
+                                             (r/read-string))]
+      (log "Beginning Planck macro processing...")
+      (log "Excluding: " exclude-macros)
+      (let [all-deps (transitive-macro-deps exclude-macros macros)
+            _ (log "Expanded set of macros:" all-deps)
+            _ (log "Building bundle...")
+            bundle (reduce (fn [m ns]
+                             (let [[full-path content] (get-macro ns)]
+                               (-> m
+                                   (assoc-in [:macro-sources (replace-ext full-path "$macros.js")]
+                                             content)
+                                   (assoc-in [:macro-caches (replace-ext full-path "$macros.cache.json")]
+                                             (cache-str ns)))))
+                           {:macro-deps all-deps}
+                           all-deps)
+            filename (str "/tmp/" (gensym "PLANCK_BUNDLE") (rand-int 9999999999999999))]
+        (spit filename (with-out-str (pr bundle)))
+        (pr (str "___file:" filename "___"))))))
