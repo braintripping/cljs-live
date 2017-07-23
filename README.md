@@ -1,28 +1,39 @@
 # CLJS-Live
 
+IN PROGRESS / ALPHA
 
-Until 2015, ClojureScript only ran in _compiled_ mode -- we had no `eval` :(. But that changed with the release of the self-hosted compiler :). Today, thanks to tools available in the `cljs.js` namespace, `eval` is easy. This is of particular interest for those of us interested in experimenting with new ideas for editing environments.
+ClojureScript can now drive fully 'live' programming environments in a web browser, which is great! But a tough challenge remains: loading of external libraries into the environment. (And what fun is programming if you can't make use of all the great libraries other people have already written?)
 
-But _consuming dependencies_ in this new environment remains an untamed challenge. There are many subtleties that you have to get right in order for a 'live' ClojureScript compiler to co-exist happily alongside a precompiled app. The purpose of this library is to solve these problems.
+**cljs-live** exists to make it easier & faster to use external libraries with the ClojureScript self-hosted compiler.
 
-CLJS-Live has two main parts.
+### What are the main goals?
+
+1. Extensibility: a way to load many different libraries into the same self-hosted ClojureScript dev environment on-demand, without having to rebuild the whole project.
+
+2. Speed: self-host projects are already very large, we should do what we can to keep things snappy (eg. precompilation, lazy loading).
+
+### What does it do?
+
+**cljs-live** works in two parts.
 
 ### Part I: create dependency bundles.
 
-We start by making a file like this, usually called `live-deps.clj`:
+Given a specification of namespaces that we want to use in a self-host environment, create a bundle that contains all the required assets.
+
+We start by making a file to describe the bundles we want, usually called `live-deps.clj`:
 
 ```clj
 {:cljsbuild-out "resources/public/js/compiled/live-out"
  :bundles-out   "resources/public/js/bundles"
  :source-paths  ["src"]
- :bundles [ { ... YOUR BUNDLES HERE ...} ]}
+ :bundles       [ { ... YOUR BUNDLES HERE ...} ]}
 ```
 
 Then, we fill in the :bundles with a vector of bundle specifications, which look like this:
 
 ```clj
 {...
- :bundles [{:name            my-app.user     ;; determines the bundle's filename
+ :bundles [{:name  my-app.user
 
             ;; namespaces to include in the bundle. transitive dependencies will be included.
             :entry #{my-app.user}
@@ -48,14 +59,14 @@ The JSON file is a simple mapping of paths to content. It will contain:
 
 ### Part II: consume dependency bundles in the browser.
 
-The second part of `cljs-live` is a small library of functions for use _in the browser_.
+How do we use the bundles created in Part I?
 
 **Feeding files to the compiler**
 
 There are two important functions in `cljs-live.compiler` that probably everyone using this tool would use:
 
-* `load-bundles!` downloads precompiled bundles created by the bundle script, and merges them into a single local cache (kind of like a fake 'classpath').
-* `load-fn` can then be passed as the :load function to `cljs.js` eval/compile functions, and will correctly resolve namespaces to the precompiled sources in the bundle cache.
+* `add-bundle!` adds a bundle created by the bundle script to a local cache
+* `load-fn` should be passed as the :load function to `cljs.js` eval/compile functions, and will correctly resolve namespaces to assets in the cache.
 
 **Eval!**
 
@@ -86,7 +97,7 @@ This code depends on implementation details of specific versions of ClojureScrip
 
 ### Example
 
-;; TODO: update this example
+;; TODO: update this example!
 https://cljs-live.firebaseapp.com
 
 ### Requirements:
@@ -98,3 +109,58 @@ https://cljs-live.firebaseapp.com
 
 - Not all macros work in the self-host environment. Mike Fikes, creator of [Planck,](planck-repl.org) is an expert on the topic, so check out his blog! Eg: [ClojureScript Macro Tower and Loop](http://blog.fikesfarm.com/posts/2015-12-18-clojurescript-macro-tower-and-loop.html), [Collapsing Macro Tower](http://blog.fikesfarm.com/posts/2016-03-04-collapsing-macro-tower.html)
 - Figuring out what does and doesn't work in the self-hosted environment can be tricky.
+
+----
+
+# Questions & Answers
+
+
+### What is the ClojureScript 'compiler'?
+
+It's the thing that turns your beautiful ClojureScript code into raw JavaScript code that can run in a browser (or on node.js, etc.).
+
+----
+
+### What is a 'self-hosted' compiler?
+
+It is a compiler written in the same language that it compiles to. Originally, parts of the ClojureScript compiler were written in Java or Clojure (JVM), so you needed a Java environment to produce new ClojureScript code. When ClojureScript got a 'self-hosted' compiler in 2015, it became possible to write and compile ClojureScript without any Java involved at all, meaning we can now have nice development environments to play with in a web browser.
+
+----
+
+### What is an analysis cache?
+
+When Clojure begins compiling a source file to javascript, it begins by 'analyzing' the source, taking note of the name of the namespace, the names of `defs` and `macros` in the namespace, what other namespaces are required or imported, and so on. This info is stored in an ordinary Clojure map in the 'compiler state', under the `:cljs.analyzer/namespaces` key. Clojure needs to use this namespace info to make sense of new code, eg. when you `eval` something at the repl which references a previously defined var.
+
+After a ClojureScript project is fully converted to javascript, we normally 'throw away' all of this namespace info because it is no longer needed -- we are left with exactly the javascript our app needs to run. _However_, usage of the self-hosted compiler is a special case, because we want to _continue_ evaluating new code, which we expect should 'know' about the structure of the existing codebase.
+
+So before we can use the self-hosted compiler with existing dependencies, we first need (A) to load the existing code (if it isn't already in the compiled app), and (B) populate the 'compiler state' with all that missing information.
+
+----
+
+### Why load files individually, rather than encoding/decoding the entire cache?
+
+A shortcut you can use for simple uses of the self-hosted compiler is to create a ClojureScript build that contains everything you want available for use, save a transit-encoded snapshot of the compiler state for that project during/after the build process, and then load up that saved cache into the compiler state.
+
+This shortcut comes with two limitations.
+
+1. Startup time. Analysis caches can be very large, and take hundreds of milliseconds to decode in a browser (on a fast computer!), during which the page is unresponsive. Because self-host builds can't use advanced compilation, they are usually very large to begin with -- so these extra delays really add up.
+
+    Instead of one long noticeable delay, we can deserialize and load dependencies on-demand as the user evaluates code which requires them, leading to shorter delays which occur precisely after the user has issued a command.
+
+2. Extensibility. We can include analysis caches and source files that were not part of an original build, allowing users to try out new libraries, other than what was initially compiled with the app. Because Google Closure does not maintain dependency information or tracking for 'compiled' builds, we have to do this manually, otherwise namespaces will be 'accidentally' loaded more than once, causing bugs.
+
+    This is why every bundle is broken into small pieces, and contains metadata about what namespaces it has provided.
+
+----
+
+### Why is the bundle JSON and not transit?
+
+A flat JSON structure which mimics a directory of files is simple, requires a minimum of parsing, and is easy to inspect in a browser's web console. Analysis caches themselves are transit-encoded.
+
+----
+
+### Why do you include the "provides" key in the bundle?
+
+The "provides" key lists the _transitive_ dependencies of the bundle's :provided namespaces. We need this to avoid loading source code for the same dependency more than once. This allows us to create multiple independent yet overlapping bundles for the same app, so users could choose to load many different libraries without worry that these libraries will interfere with each other.
+
+----
