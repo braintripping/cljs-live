@@ -28,31 +28,41 @@
         (t/write w (realize-lazy-map x))))))
 
 
+(defn cached-resource
+  "Loads the content for a given file. Includes planck cache path."
+  [file]
+  (let [the-resource (first (or (js/PLANCK_READ_FILE file)
+                                (js/PLANCK_LOAD file)
+                                (js/PLANCK_READ_FILE (str (:cache-path @repl/app-env) "/" (munge file)))))]
+    (prn :file (boolean the-resource))
+    the-resource
+    ))
+
+
 (defn compile-macro-str [namespace path source]
   (let [res (atom nil)
         _ (cljs.js/compile-str repl/st source path {:macros-ns true
-                                                    :ns        namespace} #(reset! res %))]
-    @res))
+                                                    :ns        namespace} #(reset! res %))
+        {:keys [value error]} @res]
+    (if error (throw error)
+              value)))
 
-(defn get-macro
+(defn get-source
   [namespace]
-  (let [path (-> namespace (util/demacroize-ns) (util/ns->path))
-        cljs-clojure-variants (cond-> [path]
-                                      (string/starts-with? path "cljs/") (conj (string/replace path #"^cljs/" "clojure/"))
-                                      (string/starts-with? path "clojure/") (conj (string/replace path #"^clojure/" "cljs/")))]
-    (first (for [path cljs-clojure-variants
-                 [$macros? ext] [[false "clj"]
-                                 [true "clj"]
-                                 [true "cljc"]
-                                 [false "cljc"]]
-                 :let [full-path (str path (when $macros? "$macros") "." ext)
-                       _ (log "get-macro at path: " full-path)
-                       contents (some-> (io/resource full-path) (slurp))]
-                 :when contents
-                 :let [{:keys [value error]}
-                       (compile-macro-str namespace full-path contents)]]
-             (if error (throw error)
-                       [full-path value])))))
+  (let [cached-source (cached-resource (str (util/ns->path namespace) ".js"))]
+    (or cached-source
+        (first (for [path (let [ns-path (util/ns->path (util/demacroize-ns namespace))]
+                            (cond-> [ns-path]
+                                    (string/starts-with? ns-path "cljs/") (conj (string/replace ns-path #"^cljs/" "clojure/"))
+                                    (string/starts-with? ns-path "clojure/") (conj (string/replace ns-path #"^clojure/" "cljs/"))))
+                     ext (if (util/macros-ns? namespace)
+                           ["clj" "cljc"]
+                           ["cljs" "cljc"])
+                     :let [filepath (str path "." ext)
+                           _ (log "get-source at path: " filepath)
+                           contents (some-> (io/resource filepath) (slurp))]
+                     :when contents]
+                 (compile-macro-str namespace filepath contents))))))
 
 (def get-deps
   (memoize (fn [ana-ns]
@@ -139,11 +149,13 @@
             _ (log "Expanded set of macros:" all-deps)
             _ (log "Building bundle...")
             bundle (reduce (fn [m ns]
-                             (let [[full-path content] (get-macro ns)]
+                             (let [content (get-source ns)]
+                               (when-not content
+                                 (throw (js/Error. (str "No source for ns: " ns))))
                                (-> m
-                                   (assoc-in [:macro-sources (replace-ext full-path "$macros.js")]
+                                   (assoc-in [:macro-sources (util/ns->path ns ".js")]
                                              content)
-                                   (assoc-in [:macro-caches (replace-ext full-path "$macros.cache.json")]
+                                   (assoc-in [:macro-caches (util/ns->path ns ".cache.json")]
                                              (cache-str ns)))))
                            {:macro-deps all-deps}
                            all-deps)

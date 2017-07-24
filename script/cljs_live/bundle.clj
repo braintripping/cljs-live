@@ -169,6 +169,7 @@
                 exit
                 err] :as planck-result} (shell/sh "planck"
                                                   "-c" (get-classpath)
+                                                  "--auto-cache"
                                                   "-m" "cljs-live.compile-macros-planck"
                                                   :in (with-out-str (prn macro-spec))
                                                   :out-enc "UTF-8")]

@@ -1,37 +1,13 @@
 (ns cljs-live.planck-hacks
   (:require [planck.repl :as repl]))
 
-
-;; Brutal hack to prevent unwanted behaviour due to reloading of :const.
-;; see https://dev.clojure.org/jira/browse/CLJS-1854
-
-(def remove-const-from-defs
-  (memoize #(reduce-kv (fn [m def-name the-var]
-                         (assoc m def-name
-                                  (-> the-var
-                                      (dissoc :const)
-                                      (update :meta dissoc :const)))) {} %)))
-
-(defn remove-const-defs [ana-namespaces]
-  (reduce (fn [namespaces ns-name]
-            (update-in namespaces [ns-name :defs] remove-const-from-defs)) ana-namespaces (keys ana-namespaces)))
-
-(defn purge-const! [st]
-  (update st :cljs.analyzer/namespaces remove-const-defs))
-
-(def ^:dynamic *purging* false)
-
-(add-watch repl/st :purge-const #(when-not *purging*
-                                   (binding [*purging* true]
-                                     (swap! repl/st purge-const!))))
-
-
-
-
-;; `safe-js-eval` and `with-patched-eval` are means to temporarily catch all errors
-;; during Planck's `eval`.
-;; (We want to require & compile code that needs a browser environment
-;;  and will break here in unforeseeable ways.)
+;; We are (mis)-using Planck to load and compile namespaces that are designed for
+;; browser environments, expecting things that Planck doesn't support.
+;;
+;; In fact we only load these namespaces for the side-effect of compiling them, so
+;; we can catch and ignore all eval errors.
+;;
+;; `safe-js-eval` and `with-patched-eval` modify the js-eval function used by Planck.
 
 (defn catch-js-eval
   "Patch planck's eval to catch all errors."
@@ -54,3 +30,36 @@
     (set! repl/js-eval catch-js-eval)
     (f)
     (set! repl/js-eval js-eval)))
+
+
+(comment
+
+  ;; This was a brutal hack to prevent unwanted behaviour due to reloading of :const.
+  ;; related: https://dev.clojure.org/jira/browse/CLJS-1854
+  ;;
+  ;; It was previously necessary in order to compile reagent macros.
+  ;; However, after modifying the script to read from planck's cache,
+  ;; we avoid loading reagent macros twice.
+  ;;
+  ;; It is possible that we may run into a :const-related issue again in the future,
+  ;; so keeping this code around just in case.
+
+  (def remove-const-from-defs
+    (memoize #(reduce-kv (fn [m def-name the-var]
+                           (assoc m def-name
+                                    (-> the-var
+                                        (dissoc :const)
+                                        (update :meta dissoc :const)))) {} %)))
+
+  (defn remove-const-defs [ana-namespaces]
+    (reduce (fn [namespaces ns-name]
+              (update-in namespaces [ns-name :defs] remove-const-from-defs)) ana-namespaces (keys ana-namespaces)))
+
+  (defn purge-const! [st]
+    (update st :cljs.analyzer/namespaces remove-const-defs))
+
+  (def ^:dynamic *purging* false)
+
+  (add-watch repl/st :purge-const #(when-not *purging*
+                                     (binding [*purging* true]
+                                       (swap! repl/st purge-const!)))))
