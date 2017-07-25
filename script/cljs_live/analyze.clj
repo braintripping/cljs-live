@@ -154,7 +154,10 @@
              (if-not *seen*
                (binding [*seen* (atom #{})]
                  (transitive-ana-deps dep-opts ns))
-               (do (assert (symbol? ns))
+               (do (when-not (symbol? ns)
+                     (prn "What is here?" ns)
+                     (assert (symbol? ns)))
+
                    (when-not (contains? *exclude* ns)
                      (swap! *seen* conj ns)
                      (let [next-deps (parse-ana-deps dep-opts ns)]

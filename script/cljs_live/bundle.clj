@@ -8,6 +8,7 @@
             [clojure.string :as string]
             [clojure.java.io :as io]
             [cljs.build.api :as build-api]
+            [cljs-live.bundle-util :as bundle-util]
             [cljs.util :as util]
             [cljs.analyzer :as ana]
             [clojure.tools.reader :as r]
@@ -113,20 +114,6 @@
     :cljs [(:relative-path (analyze/cljs-source-for-namespace false ns))]
     nil))
 
-(defn compile-bundle-sources
-  "Compile source-paths to ClojureScript.
-
-  We do this *without* using the self-hosted compiler because :provided namespaces
-  don't need to be self-host compatible, but we still need their analysis caches
-  and transitive dependency graphs."
-
-  [{:keys [source-paths bundles cljsbuild-out]}]
-  (let [source-paths (->> (mapcat :source-paths bundles)
-                          (concat source-paths)
-                          (distinct))]
-    (doseq [source-path source-paths]
-      (build-api/build source-path (assoc opts :output-dir cljsbuild-out)))))
-
 (defn copy-sources! [sources out]
   (doseq [[path content] sources]
     (let [full-path (str out "/" path)]
@@ -146,11 +133,12 @@
       (ana/write-analysis-cache the-ns (ana/cache-file uri (output-dir)))
       (ns->compiled-js the-ns))))
 
-(defn ensure-set [ls]
-  (if (coll? ls) (set ls) (conj #{} ls)))
+(defn wrap-in-set [ls]
+  (when ls
+    (if (coll? ls) (set ls) (conj #{} ls))))
 
 (defn get-macro-deps [entry]
-  (doall (->> (ensure-set entry)
+  (doall (->> (wrap-in-set entry)
               (mapcat #(analyze/parse-ana-deps {:include-macros? true} %))
               (filter analyze/macros-ns?)
               (set))))
@@ -185,11 +173,12 @@
   (try (slurp (io/resource r))
        (catch Exception e nil)))
 
+
 (defn make-bundle [{:keys [entry provided entry/exclude name]
                     :or   {exclude #{}}
                     :as   bundle}]
 
-  (let [entry-macro-deps (set/difference (set (mapcat get-macro-deps (ensure-set entry)))
+  (let [entry-macro-deps (set/difference (set (mapcat get-macro-deps entry))
                                          exclude-macros)
         _ (println "Begin bundle:")
         _ (pprint bundle)
@@ -198,14 +187,14 @@
 
         {:keys [macro-deps
                 macro-sources
-                macro-caches] :as compile-result} (compile-macros {:entry/macros         entry-macro-deps
-                                                                   :entry/exclude-macros (into exclude-macros exclude)})
+                macro-caches] :as compile-result} (when (seq entry-macro-deps)
+                                                    (compile-macros {:entry/macros         entry-macro-deps
+                                                                     :entry/exclude-macros (into exclude-macros exclude)}))
 
         _ (pprint {:macro-deps          macro-deps
                    :macro-deps-expanded (set/difference macro-deps entry-macro-deps)})
-
-        provided-deps (set (mapcat #(analyze/transitive-ana-deps {:include-macros? false} %) (ensure-set provided)))
-        entry-deps (-> (set (mapcat #(analyze/transitive-ana-deps {:include-macros? false} %) (ensure-set entry)))
+        provided-deps (set (mapcat #(analyze/transitive-ana-deps {:include-macros? false} %) provided))
+        entry-deps (-> (set (mapcat #(analyze/transitive-ana-deps {:include-macros? false} %) entry))
                        (disj 'cljs.core))
 
         ;; caches are bundled for all non-macro namespaces in :entry.
@@ -278,37 +267,54 @@
        :sources  sources-to-copy})))
 
 
+
+;; write bundle index
+
+;; write temp ns files, add to classpath
+
+(defn delete-recursively [fname]
+  ;; https://gist.github.com/edw/5128978
+  (doseq [f (reverse (file-seq (clojure.java.io/file fname)))]
+    (clojure.java.io/delete-file f)))
+
+(defn compile-sources [source-paths out-dir]
+  (doseq [source-path source-paths]
+    (build-api/build source-path (assoc opts :output-dir out-dir))))
+
 (defn main [bundle-spec-path]
 
-  #_(binding [env/*compiler* live-st]
-      (let [cljs-ns 'cljs.analyzer.api
-            opts (assoc opts :output-dir (output-dir))
-            ;ijs-list (cljsc/cljs-dependencies opts [cljs-ns])
-            the-source (:uri (cljsc/cljs-source-for-namespace cljs-ns))
-            _ (prn :the-source the-source)
-            inputs (build-api/inputs the-source)
-            _ (prn :inputs inputs)
-            compile (partial build-api/compile opts)
-            result (compile inputs)
-            _ (prn :result result)
-            ]
-        (prn :inp inputs)
-        ;(prn :the-s (cljsc/cljs-source-for-namespace cljs-ns))
-        (prn :did-it-work? (ns->compiled-js cljs-ns) (safe-slurp (ns->compiled-js cljs-ns)))
-        (ns->compiled-js cljs-ns)))
-  (let [{:keys [bundle-out
+  (let [bundle-spec (-> bundle-spec-path
+                        (slurp)
+                        (r/read-string))
+        {:keys [bundle-out
                 cljsbuild-out
-                bundles] :as bundle-spec} (-> bundle-spec-path
-                                              (slurp)
-                                              (r/read-string))]
+                bundles] :as bundle-spec} (assoc bundle-spec :bundles (map (fn [bundle]
+                                                                             (-> bundle
+                                                                                 (update :entry wrap-in-set)
+                                                                                 (update :entry/exclude wrap-in-set)
+                                                                                 (update :entry/no-follow wrap-in-set)
+                                                                                 (update :provided wrap-in-set))) (:bundles bundle-spec)))]
 
     (binding [env/*compiler* live-st]
       (swap! env/*compiler* assoc-in [:options :output-dir] cljsbuild-out)
-      (prn "Compile...")
-      (time (compile-bundle-sources bundle-spec))
-      ;; TODO
-      ;; write temporary namespaces into the sources dir so that when we compile,
-      ;; we include everything from the live-deps.
+
+      (let [{entry-macros true
+             entry        false} (group-by analyze/macros-ns? (mapcat :entry bundles))
+            temp-src (str bundle-out "/temp_src")
+            temp-ns-path (str temp-src "/cljs_live_temp/user.cljs")]
+
+        (io/make-parents temp-ns-path)
+        (spit temp-ns-path `(~'ns ~'cljs-live-temp.user
+                              (:require ~@entry)
+                              (:require-macros ~@(map bundle-util/demacroize-ns entry-macros))))
+
+        (prn "Compile...")
+        (time (compile-sources (->> (mapcat :source-paths bundles)
+                                    (concat (:source-paths bundle-spec))
+                                    (cons temp-src)
+                                    (distinct)) cljsbuild-out))
+        (delete-recursively temp-ns-path))
+
       (prn "Make opts...")
       (time (-> opts
                 (cljsc/maybe-install-node-deps!)
@@ -327,6 +333,7 @@
       (json/write-str (str bundle-out "/"))
 
       (doseq [{:keys [name entry/no-follow entry/exclude] :as bundle-spec} bundles]
+        (when-not name (throw (Exception. (str "Bundle requires a name: " bundle-spec))))
         (binding [analyze/*no-follow* (set no-follow)
                   analyze/*exclude* (set exclude)]
           (let [{sources :sources
