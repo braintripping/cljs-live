@@ -1,7 +1,7 @@
 (ns cljs-live.bundle
   (:require [cljs.js-deps :as deps]
             [cljs.closure :as cljsc]
-            [clojure.pprint :refer [pprint]]
+            [clojure.pprint :as pp :refer [pprint]]
             [cljs.env :as env]
             [cljs-live.analyze :as analyze]
             [clojure.set :as set]
@@ -18,6 +18,12 @@
   (:import (java.io ByteArrayInputStream ByteArrayOutputStream)))
 
 (def ^:dynamic *string-encoding* "UTF-8")
+(def DEBUG false)
+(defn log [& args]
+  (when DEBUG
+    (if (= 1 (count args))
+      (pprint args)
+      (apply prn args))))
 
 (defn transit-read
   "Reads a value from a decoded string"
@@ -180,19 +186,19 @@
 
   (let [entry-macro-deps (set/difference (set (mapcat get-macro-deps entry))
                                          exclude-macros)
-        _ (println "Begin bundle:")
-        _ (pprint bundle)
-        _ (prn "Macros: ")
-        _ (pprint entry-macro-deps)
+        _ (log bundle)
+        _ (log "Macros: ")
+        _ (log entry-macro-deps)
 
         {:keys [macro-deps
                 macro-sources
-                macro-caches] :as compile-result} (when (seq entry-macro-deps)
-                                                    (compile-macros {:entry/macros         entry-macro-deps
-                                                                     :entry/exclude-macros (into exclude-macros exclude)}))
+                macro-caches]} (when (seq entry-macro-deps)
+                                 (compile-macros {:entry/macros         entry-macro-deps
+                                                  :entry/exclude-macros (into exclude-macros exclude)}))
 
-        _ (pprint {:macro-deps          macro-deps
-                   :macro-deps-expanded (set/difference macro-deps entry-macro-deps)})
+        _ (log {:macro-deps          macro-deps
+                :macro-deps-expanded (set/difference macro-deps entry-macro-deps)})
+
         provided-deps (set (mapcat #(analyze/transitive-ana-deps {:include-macros? false} %) provided))
         entry-deps (-> (set (mapcat #(analyze/transitive-ana-deps {:include-macros? false} %) entry))
                        (disj 'cljs.core))
@@ -206,7 +212,7 @@
 
         ;; sources are required for namespaces in :entry which are not :provided.
         require-*-source (set/difference entry-deps provided-deps)
-        _ (prn "Require source files: " (sort require-*-source))
+        _ (log "Require source files: " (sort require-*-source))
 
 
         ;; source files are grouped by :js, :macro, and :cljs.
@@ -224,11 +230,19 @@
                              (reduce (fn [m path]
                                        (if-let [contents (safe-slurp-resource path)]
                                          (assoc m path contents)
-                                         (do
-                                           (prn :MISSING_FILE path)
-                                           m))) {}))]
+                                         (do (prn :MISSING_FILE path)
+                                             m))) {}))]
 
-
+    (pp/print-table [{:kind  :cljs-sources
+                      :count (count require-cljs-source)}
+                     {:kind :cljs-caches
+                      :count (count require-cljs-cache)}
+                     {:kind  :macro-sources
+                      :count (count macro-sources)}
+                     {:kind  :macro-caches
+                      :count (count macro-caches)}
+                     {:kind :js-sources
+                      :count (count require-js-source)}])
     (merge
 
       macro-sources
@@ -255,7 +269,7 @@
 
       (->> require-js-source-files
            (reduce (fn [m js-dep]
-                     (prn :the-js-dep js-dep)
+                     (log :the-js-dep js-dep)
                      (assoc m (js-dep-path js-dep)
                               ;; add goog.provide statements.
                               (str (cljsc/build-provides (map munge (:provides js-dep)))
@@ -295,6 +309,8 @@
                                                                                  (update :entry/no-follow wrap-in-set)
                                                                                  (update :provided wrap-in-set))) (:bundles bundle-spec)))]
 
+
+
     (binding [env/*compiler* live-st]
       (swap! env/*compiler* assoc-in [:options :output-dir] cljsbuild-out)
 
@@ -308,18 +324,17 @@
                               (:require ~@entry)
                               (:require-macros ~@(map bundle-util/demacroize-ns entry-macros))))
 
-        (prn "Compile...")
+        (println "\n*****\nCLJS-Live\n\n...compiling project\n")
         (time (compile-sources (->> (mapcat :source-paths bundles)
                                     (concat (:source-paths bundle-spec))
                                     (cons temp-src)
                                     (distinct)) cljsbuild-out))
         (delete-recursively temp-ns-path))
 
-      (prn "Make opts...")
-      (time (-> opts
-                (cljsc/maybe-install-node-deps!)
-                (cljsc/add-implicit-options)
-                (cljsc/process-js-modules)))
+      (-> opts
+          (cljsc/maybe-install-node-deps!)
+          (cljsc/add-implicit-options)
+          (cljsc/process-js-modules))
 
 
       (let [core-path (str bundle-out "/cljs.core.json")]
@@ -331,24 +346,27 @@
                                                                          (slurp)))) {})))))
 
       (json/write-str (str bundle-out "/"))
+      (let [bundle-count (count bundles)]
+        (doseq [i (range bundle-count)]
+          (let [{:keys [name entry/no-follow entry/exclude] :as bundle-spec} (nth bundles i)]
+            (when-not name (throw (Exception. (str "Bundle requires a name: " bundle-spec))))
+            (println (str "\n..." name " (" (inc i) "/" bundle-count ")"))
+            (binding [analyze/*no-follow* (set no-follow)
+                      analyze/*exclude* (set exclude)]
+              (let [{sources :sources
+                     :as     the-bundle} (make-bundle bundle-spec)]
 
-      (doseq [{:keys [name entry/no-follow entry/exclude] :as bundle-spec} bundles]
-        (when-not name (throw (Exception. (str "Bundle requires a name: " bundle-spec))))
-        (binding [analyze/*no-follow* (set no-follow)
-                  analyze/*exclude* (set exclude)]
-          (let [{sources :sources
-                 :as     the-bundle} (make-bundle bundle-spec)]
+                ;; copy sources to output-dir
+                (copy-sources! sources (str bundle-out "/sources"))
 
-            ;; copy sources to output-dir
-            (copy-sources! sources (str bundle-out "/sources"))
+                ;; TODO
+                ;; - allow :entry-ns in dep-spec for inline namespace declaration
+                ;; - handle :dependencies loading
 
-            ;; TODO
-            ;; - allow :entry-ns in dep-spec for inline namespace declaration
-            ;; - handle :dependencies loading
-
-            (spit (str bundle-out "/" name ".json")
-                  (json/write-str (dissoc the-bundle :sources))))))
-      (println :Finished))))
+                (spit (str bundle-out "/" name ".json")
+                      (json/write-str (dissoc the-bundle :sources))))))))
+      (println "\nFinished\n*****\n")
+      (System/exit 0))))
 
 
 (comment

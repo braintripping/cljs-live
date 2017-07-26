@@ -19,7 +19,7 @@
                     [:canvas#quil-canvas.v-mid.ml4.br-100]]
                    [:p.center.f3.mb3.tc.i "Bundling dependencies for the self-hosted ClojureScript compiler"]
                    [:.absolute.top-0.right-0.pa2
-                    [:a.black.dib.ph3.pv2.bg-near-white.br1 {:href "https://www.github.com/mhuebert/cljs-live"} "Source on GitHub"]]
+                    [:a.black.dib.ph3.pv2.bg-near-white.br1 {:href "https://www.github.com/braintripping/cljs-live"} "Source on GitHub"]]
                    (md "Given the following `live-deps.clj` file, we run `./bundle.sh live-deps` to generate a cache of dependencies, which is included in this page. In the examples below, our self-hosted ClojureScript compiler reads from this cache while evaluating `(ns..)` and `(require..)` expressions.
 
 **live-deps.clj**
