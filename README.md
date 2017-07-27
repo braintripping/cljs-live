@@ -51,6 +51,8 @@ It should look something like this:
 
 From this description, cljs-live will compile your project and write a single JSON file for each bundle, each containing the necessary files, to your `:bundle-out` directory. As well, a copy of the original source for every file in your project is copied to a `sources` subdirectory.
 
+To run the script, we need to call the `cljs-live.bundle/main` function with a path to the `live-deps.clj` file in our project.
+
 The JSON file is a simple mapping of paths to content. It will contain:
 
 - Analysis cache files for every `:entry` namespace, and its transitive dependencies
