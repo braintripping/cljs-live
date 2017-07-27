@@ -93,7 +93,7 @@ https://cljs-live.firebaseapp.com
 
 ### Requirements:
 
-- [Planck REPL](planck-repl.org)
+- [Planck REPL](planck-repl.org), version 2.5
 - Clojure
 
 ### Notes
