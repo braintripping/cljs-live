@@ -54,7 +54,9 @@ From this description, cljs-live will compile your project and write a single JS
 TODO: better instructions / setup for running the script.
 
 1. Ensure that cljs-live has been added to your :dependencies. `[cljs-live "..version.."]`
-2. Call the `cljs-live.bundle/main` function with a path to the `live-deps.clj` file in our project.
+2. Call the `cljs-live.bundle/main` function with a path to the `live-deps.clj` file in our project. eg:
+
+    `lein run -m cljs-live.bundle/main live-deps.clj`
 
 The JSON file is a simple mapping of paths to content. It will contain:
 
