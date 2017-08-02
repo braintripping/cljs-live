@@ -12,9 +12,7 @@ You can use **cljs-live** to precompile 'dependency bundles' which can be loaded
 
 2. Speed: self-host projects are already very large, we should do what we can to keep things snappy (eg. precompilation, lazy loading).
 
-### What does it do?
-
-**cljs-live** works in two parts.
+## Usage
 
 ### Part I: create dependency bundles.
 
@@ -27,7 +25,7 @@ We start by making a file to describe the bundles we want, usually called `live-
  :bundles       [ { ... YOUR BUNDLES HERE ...} ]}
 ```
 
-Then we must describe what bundles we want. Each bundle needs a `:name`, a list of `:entry` namespaces (what users should be able to load and use), and a list of `:provided` namespaces (this is usually the `:main` namespace of your compiled app, which will already be in the environment.)
+In the `:bundles` key, we describe what bundles we want. Each bundle needs a `:name`, a list of `:entry` namespaces (what users should be able to load and use), and a list of `:provided` namespaces (this is usually the `:main` namespace of your compiled app, which will already be in the environment.)
 
 It should look something like this:
 
@@ -51,7 +49,12 @@ It should look something like this:
 
 From this description, cljs-live will compile your project and write a single JSON file for each bundle, each containing the necessary files, to your `:bundle-out` directory. As well, a copy of the original source for every file in your project is copied to a `sources` subdirectory.
 
-To run the script, we need to call the `cljs-live.bundle/main` function with a path to the `live-deps.clj` file in our project.
+#### Run the script
+
+TODO: better instructions / setup for running the script.
+
+1. Ensure that cljs-live has been added to your :dependencies. `[cljs-live "..version.."]`
+2. Call the `cljs-live.bundle/main` function with a path to the `live-deps.clj` file in our project.
 
 The JSON file is a simple mapping of paths to content. It will contain:
 
@@ -90,7 +93,8 @@ These functions do the same thing as what you find in `cljs.js`, but include ext
 
 ### Example
 
-;; TODO: update this example! It's stale!
+TODO: update this example, it's stale!
+
 https://cljs-live.firebaseapp.com
 
 ### Requirements:
