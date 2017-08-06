@@ -1,10 +1,10 @@
 # CLJS-Live
 
-IN PROGRESS / ALPHA
+ALPHA
 
-ClojureScript can now drive fully 'live' programming environments in a web browser, which is great! But a tough challenge remains: loading of external libraries into the environment. (And what fun is programming if you can't make use of all the great libraries other people have already written?)
+Since 2015, it has been possible to write and evaluate ClojureScript in a web browser. This is great! But a tough challenge remains: loading of external libraries into the environment. And what fun is programming if you can't re-use other people's code?
 
-**cljs-live** exists to make it easier & faster to use external libraries with the ClojureScript self-hosted compiler.
+You can use **cljs-live** to precompile 'dependency bundles' which can be loaded on-demand from a web browser.
 
 ### What are the main goals?
 
@@ -12,13 +12,9 @@ ClojureScript can now drive fully 'live' programming environments in a web brows
 
 2. Speed: self-host projects are already very large, we should do what we can to keep things snappy (eg. precompilation, lazy loading).
 
-### What does it do?
-
-**cljs-live** works in two parts.
+## Usage
 
 ### Part I: create dependency bundles.
-
-Given a specification of namespaces that we want to use in a self-host environment, create a bundle that contains all the required assets.
 
 We start by making a file to describe the bundles we want, usually called `live-deps.clj`:
 
@@ -29,7 +25,9 @@ We start by making a file to describe the bundles we want, usually called `live-
  :bundles       [ { ... YOUR BUNDLES HERE ...} ]}
 ```
 
-Then, we fill in the :bundles with a vector of bundle specifications, which look like this:
+In the `:bundles` key, we describe what bundles we want. Each bundle needs a `:name`, a list of `:entry` namespaces (what users should be able to load and use), and a list of `:provided` namespaces (this is usually the `:main` namespace of your compiled app, which will already be in the environment.)
+
+It should look something like this:
 
 ```clj
 {...
@@ -49,12 +47,21 @@ Then, we fill in the :bundles with a vector of bundle specifications, which look
             }]
 ```
 
-CLJS-Live will attempt to calculate and generate all the files necessary to use your `:entry` namespaces in a self-hosted environment. It then bundles all of this together and emits a single JSON file to the `:bundles-out` directory, and also copies all of the related original source files to a `sources` directory in the same location.
+From this description, cljs-live will compile your project and write a single JSON file for each bundle, each containing the necessary files, to your `:bundle-out` directory. As well, a copy of the original source for every file in your project is copied to a `sources` subdirectory.
+
+#### Run the script
+
+TODO: better instructions / setup for running the script.
+
+1. Ensure that cljs-live has been added to your :dependencies. `[cljs-live "..version.."]`
+2. Call the `cljs-live.bundle/main` function with a path to the `live-deps.clj` file in our project. eg:
+
+    `lein run -m cljs-live.bundle/main live-deps.clj`
 
 The JSON file is a simple mapping of paths to content. It will contain:
 
-- Analysis cache files for every `:entry` namespace
-- Compiled javascript for all required macro namespaces, as well as any other namespaces that aren't already in the `:provided` build
+- Analysis cache files for every `:entry` namespace, and its transitive dependencies
+- Compiled javascript for all required macro namespaces, as well as any namespace that isn't already included in the `:provided` build
 - A `"provided"` key with a complete list of namespaces that are expected to be already loaded by the `:provided` app.
 
 ### Part II: consume dependency bundles in the browser.
@@ -65,44 +72,36 @@ How do we use the bundles created in Part I?
 
 There are two important functions in `cljs-live.compiler` that probably everyone using this tool would use:
 
-* `add-bundle!` adds a bundle created by the bundle script to a local cache
+* `add-bundle!` adds a bundle created by the bundle script to a local cache.
 * `load-fn` should be passed as the :load function to `cljs.js` eval/compile functions, and will correctly resolve namespaces to assets in the cache.
 
 **Eval!**
 
 There are also functions in `cljs-live.eval` that make it easy to manage the eval/compile process:
 
-* `eval-str` evaluates all of the forms in a given string and returns the last result
-* `eval` evaluates a single form
+* `eval-str` evaluates all of the forms in a given string, and returns the last result.
+* `eval` evaluates a single form.
 
-These functions do the same thing as what you find in `cljs.js`, but with some extras:
+These functions do the same thing as what you find in `cljs.js`, but include extra information along with the result:
 
-- Source mapping: the default `cljs.js` does not expose source maps from `eval`, so you have to perform an intermediate `compile` to get this information. We give this to you in one step.
-- Error positions: when an error is encountered, we use source-maps to find its position in the original source file, which was also emitted (separately) from the bundler.
-- Namespace tracking: the current namespace is stored in a compiler-env atom; the `ns` and `in-ns` repl-special functions update this atom whenever the user changes the namespace
-
-Specifically, when you call `eval` and `eval-str` you get back a map which includes:
-
-  :value or :error - depending on the result of evaluation
+  :value or :error - same as in `cljs.js`, just the evaluation result
   :error-position  - the 0-indexed position of the error, if present
-  :compiled-js     - the javascript source emitted by the compiler
-  :source          - the source code string that was evaluated
-  :source-map      - the base64-encoded source-map string
-  :env             - the compile environment, a map containing :ns (current namespace)
+  :compiled-js     - javascript source emitted by the compiler
+  :source          - original source string that was evaluated
+  :source-map      - base64-encoded source-map string
+  :env             - a map containing :ns (current namespace) 
 
-### Warning
-
-This code depends on implementation details of specific versions of ClojureScript and Planck and is still quite brittle.
-
+(The :env key should probably be renamed/revisited. The current namespace is stored in a compiler-env atom; the `ns` and `in-ns` repl-special functions update this atom whenever the user changes the namespace.)
 
 ### Example
 
-;; TODO: update this example!
+TODO: update this example, it's stale!
+
 https://cljs-live.firebaseapp.com
 
 ### Requirements:
 
-- [Planck REPL](planck-repl.org)
+- [Planck REPL](planck-repl.org), version 2.5
 - Clojure
 
 ### Notes
