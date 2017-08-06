@@ -225,7 +225,8 @@
 
         require-js-source-files (transitive-js-deps require-js-source)
 
-        sources-to-copy (->> (set/union entry-deps provided-deps macro-deps)
+        ;; cljs.core$macros is AOT-compiled as a special case so we manually include it here
+        sources-to-copy (->> (set/union entry-deps provided-deps macro-deps #{'cljs.core$macros})
                              (mapcat dep-paths)
                              (reduce (fn [m path]
                                        (if-let [contents (safe-slurp-resource path)]
