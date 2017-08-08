@@ -172,18 +172,19 @@
                          (fn [{error                       :error
                                compiled-js-with-source-map :value}]
                            (let [[compiled-js source-map] (clojure.string/split compiled-js-with-source-map #"\n//#\ssourceURL[^;]+;base64,")]
-                             (->> (if error
-                                    {:error          error
-                                     :error/kind     :compile
-                                     :error-position (some-> (ex-cause error)
-                                                             (ex-data)
-                                                             (select-keys [:line :column])
-                                                             (dec-pos)
-                                                             (relative-pos start-position))}
-                                    {:compiled-js compiled-js
-                                     :source      source
-                                     :source-map  source-map
-                                     :env         @c-env})
+
+                             (->> {:source source}
+                                  (merge (if error
+                                           {:error          error
+                                            :error/kind     :compile
+                                            :error-position (some-> (ex-cause error)
+                                                                    (ex-data)
+                                                                    (select-keys [:line :column])
+                                                                    (dec-pos)
+                                                                    (relative-pos start-position))}
+                                           {:compiled-js compiled-js
+                                            :source-map  source-map
+                                            :env         @c-env}))
                                   (reset! result)))))
        @result))))
 
@@ -224,6 +225,7 @@
 
                                                                                                            :start-position start-pos})]
                                          (merge result
+                                                {:form form}
                                                 (if error
                                                   {:error          error
                                                    :error/kind     :compile
@@ -281,7 +283,6 @@
             *ns* (:ns @c-env)]
     (try {:value (read-string-indexed src)}
          (catch js/Error e
-           (throw e)
            {:error      e
             :error/kind :reader}))))
 
@@ -292,6 +293,7 @@
   ([c-state c-env src] (eval-str c-state c-env src {}))
   ([c-state c-env src opts]
    (let [{:keys [error value] :as result} (read-src c-state c-env src)]
-     (if error
-       result
-       (eval-forms c-state c-env value opts)))))
+     (merge (if error
+              result
+              (eval-forms c-state c-env value opts))
+            {:source src}))))
