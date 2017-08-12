@@ -85,7 +85,7 @@ There are also functions in `cljs-live.eval` that make it easy to manage the eva
 These functions do the same thing as what you find in `cljs.js`, but include extra information along with the result:
 
   :value or :error - same as in `cljs.js`, just the evaluation result
-  :error-position  - the 0-indexed position of the error, if present
+  :error/position  - the 0-indexed position of the error, if present
   :compiled-js     - javascript source emitted by the compiler
   :source          - original source string that was evaluated
   :source-map      - base64-encoded source-map string

@@ -1,10 +1,11 @@
 (ns cljs-live.examples
   (:require
     [npm.marked]
-    [cljsjs.react.dom]
     [re-view-hiccup.core :as hiccup]
     [cljs-live.compiler :as c]
-    [cljs-live.eval :as e]))
+    [cljs-live.eval :as e]
+    react-dom
+    react))
 
 (enable-console-print!)
 
@@ -44,7 +45,7 @@
                      (render))]))
 
 (defn render-root []
-  (js/ReactDOM.render (render-examples) (js/document.getElementById "app")))
+  (react-dom/render (render-examples) (js/document.getElementById "app")))
 
 (defn example [label initial-source]
   (let [source (atom initial-source)
@@ -69,7 +70,7 @@
                                                       (.error js/console "eval-error" error)
                                                       (throw error)
                                                       (str error))
-                                                    (if (js/React.isValidElement value)
+                                                    (if (react/isValidElement value)
                                                       value
                                                       [:.dib.ma2.gray
                                                        (if value (str value) "nil")])))]]))]

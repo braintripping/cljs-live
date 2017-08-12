@@ -134,7 +134,7 @@
                        :source           source
                        :form             form})))
 
-(defn error-position [error]
+(defn stack-error-position [error]
   (let [[line column] (->> (re-find #"<anonymous>:(\d+)(?::(\d+))" (.-stack error))
                            (rest)
                            (map js/parseInt))]
@@ -152,6 +152,21 @@
                                    (last))]
     {:line   line
      :column col}))
+
+
+
+(defn add-error-position [{:keys [error error/position error/kind start-position source-map] :as result}]
+  (cond-> result
+          (and error (nil? position)) (assoc :error/position
+                                             (case kind :compile (some-> (ex-cause error)
+                                                                         (ex-data)
+                                                                         (select-keys [:line :column])
+                                                                         (dec-pos)
+                                                                         (relative-pos start-position))
+                                                        :eval (-> (stack-error-position error)
+                                                                  (mapped-cljs-position source-map)
+                                                                  (relative-pos start-position))
+                                                        nil))))
 
 (defn compile-str
   ([c-state c-env source] (compile-str c-state c-env source {}))
@@ -173,18 +188,16 @@
                                compiled-js-with-source-map :value}]
                            (let [[compiled-js source-map] (clojure.string/split compiled-js-with-source-map #"\n//#\ssourceURL[^;]+;base64,")]
 
-                             (->> {:source source}
+                             (->> {:source         source
+                                   :form           form
+                                   :start-position start-position}
                                   (merge (if error
-                                           {:error          error
-                                            :error/kind     :compile
-                                            :error-position (some-> (ex-cause error)
-                                                                    (ex-data)
-                                                                    (select-keys [:line :column])
-                                                                    (dec-pos)
-                                                                    (relative-pos start-position))}
+                                           {:error      error
+                                            :error/kind :compile}
                                            {:compiled-js compiled-js
                                             :source-map  source-map
                                             :env         @c-env}))
+                                  (add-error-position)
                                   (reset! result)))))
        @result))))
 
@@ -199,7 +212,7 @@
   Eval returns a map containing:
 
   :value or :error - depending on the result of evaluation
-  :error-position  - the 0-indexed position of the error, if present
+  :error/position  - the 0-indexed position of the error, if present
   :compiled-js     - the javascript source emitted by the compiler
   :source          - the source code string that was evaluated
   :source-map      - the base64-encoded source-map string
@@ -211,35 +224,22 @@
                             (contains? repl-specials (first form))
                             (not (::skip-repl-special (meta form))))
          opts (merge (c-opts c-state c-env) opts)
-         {:keys [source] :as start-pos} (when (satisfies? IMeta form)
-                                          (some-> (meta form) (dec-pos)))
+         {:keys [source] :as start-position} (when (satisfies? IMeta form)
+                                               (some-> (meta form) (dec-pos)))
          {:keys [ns] :as result} (if repl-special?
                                    (repl-special c-state c-env form)
                                    (binding [*cljs-warning-handlers* [(partial warning-handler form source)]
                                              r/*data-readers* (conj r/*data-readers* {'js identity})]
                                      (if source
                                        (let [{:keys [compiled-js
-                                                     source-map
                                                      error] :as result} (compile-str c-state c-env source {:form           form
                                                                                                            :opts           opts
-
-                                                                                                           :start-position start-pos})]
-                                         (merge result
-                                                {:form form}
-                                                (if error
-                                                  {:error          error
-                                                   :error/kind     :compile
-                                                   :error-position (some-> (ex-cause error)
-                                                                           (ex-data)
-                                                                           (select-keys [:line :column])
-                                                                           (dec-pos)
-                                                                           (relative-pos start-pos))}
-                                                  (try {:value (js/eval compiled-js)}
-                                                       (catch js/Error e {:error          e
-                                                                          :error/kind     :eval
-                                                                          :error-position (-> (error-position e)
-                                                                                              (mapped-cljs-position source-map)
-                                                                                              (relative-pos start-pos))})))))
+                                                                                                           :start-position start-position})]
+                                         (cond-> result
+                                                 (not error) (-> (merge (try {:value (js/eval compiled-js)}
+                                                                             (catch js/Error e {:error      e
+                                                                                                :error/kind :eval})))
+                                                                 (add-error-position))))
                                        (let [result (atom nil)]
                                          (cljs/eval c-state form opts #(reset! result %))
                                          @result))))]
