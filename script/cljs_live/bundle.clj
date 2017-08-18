@@ -231,7 +231,8 @@
         sources-to-copy (->> (set/union entry-deps provided-deps macro-deps #{'cljs.core$macros})
                              (mapcat dep-paths)
                              (reduce (fn [m path]
-                                       (if-let [contents (safe-slurp-resource path)]
+                                       (if-let [contents (or (safe-slurp-resource path)
+                                                             (safe-slurp path))]
                                          (assoc m path contents)
                                          (do (prn :MISSING_FILE path)
                                              m))) {}))]
