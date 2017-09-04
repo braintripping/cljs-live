@@ -5,7 +5,7 @@
   [name & body]
   (let [docstring (when (string? (first body)) (first body))
         body (cond->> body docstring (drop 1))]
-    `(do (def ~name (with-meta (fn [c-state# c-env# [_ & args#]]
+    `(do (def ~name (with-meta (fn [c-state# c-env# [~'_ & args#]]
                                  (apply ~(cons 'fn body) c-state# c-env# args#))
                                {:doc      ~docstring
                                 :name     '~(symbol (str *ns*) (str name))

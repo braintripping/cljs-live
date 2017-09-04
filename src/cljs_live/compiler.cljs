@@ -63,9 +63,9 @@
   (fn [name reload]
     (if (or (not (is-provided? name)) reload)
       (let [content (namespace-content name)]
-        (cond content (do (set! *loaded-libs* (conj *loaded-libs* name))
-                          (js/eval content))
-              :else (do (set! *loaded-libs* (conj *loaded-libs* name))
+        (if content (do (set! *loaded-libs* (conj *loaded-libs* name))
+                        (js/eval content))
+                    (do (set! *loaded-libs* (conj *loaded-libs* name))
                         (goog-require name reload))))
       (log "goog require: prevented the load of " name))))
 

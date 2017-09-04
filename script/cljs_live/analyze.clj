@@ -6,7 +6,6 @@
             [cljs.closure :as cljsc]
             [clojure.set :as set]
             [clojure.string :as string]
-            [clojure.pprint :refer [pprint]]
             [clojure.java.io :as io]
             [cljs-live.bundle-util :refer [macroize-ns demacroize-ns demacroize]]
             [cljs.js-deps :as deps])

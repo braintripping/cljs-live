@@ -349,7 +349,6 @@
                                                        (assoc m path (-> (io/file cljsbuild-out path)
                                                                          (slurp)))) {})))))
 
-      (json/write-str (str bundle-out "/"))
       (let [bundle-count (count bundles)]
         (doseq [i (range bundle-count)]
           (let [{:keys [name entry/no-follow entry/exclude] :as bundle-spec} (nth bundles i)]
