@@ -65,6 +65,7 @@
            :pretty-print          false
            ;:optimize-constants    true ;; causes circular dependency error
            :static-fns            true
+           :preloads []
 
            })
 
@@ -335,8 +336,8 @@
                                     (distinct)) cljsbuild-out))
         (delete-recursively temp-ns-path))
 
+      (cljsc/maybe-install-node-deps! opts)
       (-> opts
-          (cljsc/maybe-install-node-deps!)
           (cljsc/add-implicit-options)
           (cljsc/process-js-modules))
 
