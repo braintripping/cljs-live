@@ -107,7 +107,7 @@
                                recursive?      true}} ns]
   (binding [*include-macros* (or include-macros? false)]
     (transitive-deps* ns)))
-
+cljs.analyzer
 (def parse-ana-deps
   (memoize (fn [{:keys [include-macros?
                         recursive?]

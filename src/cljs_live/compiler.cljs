@@ -141,24 +141,24 @@
   "Add a bundle to the local cache."
   [bundle]
   (let [bundle (reduce-kv (fn [bundle k v]
-                            (cond-> bundle
-                                    (or (string/starts-with? v "goog")
-                                        (string/starts-with? k "goog")
-                                        (and (string/ends-with? k ".js")
-                                             ;; for a JS file, see if a goog.provide statement shows up
-                                             ;; in teh first 300 characters.
-                                             (some-> v (> (.indexOf (subs v 0 300) "goog.provide") -1))))
+  (cond-> bundle
+          (or (string/starts-with? v "goog")
+              (string/starts-with? k "goog")
+              (and (string/ends-with? k ".js")
+                   ;; for a JS file, see if a goog.provide statement shows up
+                   ;; in teh first 300 characters.
+                   (some-> v (> (.indexOf (subs v 0 300) "goog.provide") -1))))
 
 
-                                    ;;
-                                    ;; parse google provide statements to enable dependency resolution
-                                    ;; for arbitrary google closure modules.
-                                    ;; this is a slow operation so we don't want to do it on all files.
+          ;;
+          ;; parse google provide statements to enable dependency resolution
+          ;; for arbitrary google closure modules.
+          ;; this is a slow operation so we don't want to do it on all files.
 
-                                    (update "name-to-path" merge (let [provides (parse-goog-provides v)]
-                                                                   (when (empty? provides)
-                                                                     (log k ": " provides "\n"))
-                                                                   (apply hash-map (interleave provides (repeat k))))))) bundle bundle)]
+          (update "name-to-path" merge (let [provides (parse-goog-provides v)]
+                                         (when (empty? provides)
+                                           (log k ": " provides "\n"))
+                                         (apply hash-map (interleave provides (repeat k))))))) bundle bundle)]
     (swap! cljs-cache (partial merge-with (fn [v1 v2]
                                             (if (coll? v1) (into v1 v2) v2))) bundle)
     bundle))

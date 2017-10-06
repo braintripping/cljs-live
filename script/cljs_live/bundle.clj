@@ -187,11 +187,38 @@
                     :or   {exclude #{}}
                     :as   bundle}]
 
+  ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+  ;; Creating a bundle to use with the self-hosted compiler
+
+  ;; a bundle always contains the following two keys:
+
+  ;; :provided - list of `provided` namespaces (transitive)
+  ;; :sources  - list of source files
+
+  ;; ...as well as files,
+  ;; - macro source files
+  ;; - macro analysis cache files
+  ;; - cljs source files
+  ;; - cljs analysis cache files
+  ;; - js source files
+
+
+  ;; 1. Get the `macro` dependencies for the bundle.
+  ;;    `get-macro-deps` uses a modified version of cljs.analyzer/parse-ns
+  ;;    to return transitive macro dependencies of entry.
+  ;;    Normal ClojureScript builds ignore macros when walking the dep-graph
+  ;;    because they are only used at compile-time.
+
   (let [entry-macro-deps (set/difference (set (mapcat get-macro-deps entry))
                                          exclude-macros)
         _ (log bundle)
         _ (log "Macros: ")
         _ (log entry-macro-deps)
+
+        ;; 2. Use a self-hosted compiler to compile macros (we use Planck). Returns:
+        ;;    :macro-deps    - set of macro namespaces returned
+        ;;    :macro-sources - compiled js source for macros
+        ;;    :macro-caches  - analysis caches
 
         {:keys [macro-deps
                 macro-sources
@@ -202,13 +229,14 @@
         _ (log {:macro-deps          macro-deps
                 :macro-deps-expanded (set/difference macro-deps entry-macro-deps)})
 
+        ;; 3. Determine transitive dependencies for `provided` and `entry` namespaces.
         provided-deps (set (mapcat #(analyze/transitive-ana-deps {:include-macros? false} %) provided))
         entry-deps (-> (set (mapcat #(analyze/transitive-ana-deps {:include-macros? false} %) entry))
                        (disj 'cljs.core))
 
-        ;; caches are bundled for all non-macro namespaces in :entry.
-        ;; caches do not exist for non-Clojure(Script) namespaces.
-        ;; macro namespaces must be handled by self-hosted compiler step.
+        ;; 4. Determine which cljs namespaces require analysis caches.
+        ;;    Macro namespaces are excluded because they were handled by Planck.
+        ;;    Cache files do not exist for js namespaces.
         require-cljs-cache (->> entry-deps
                                 (filter (complement analyze/macros-ns?))
                                 (filter (complement js-exists?)))

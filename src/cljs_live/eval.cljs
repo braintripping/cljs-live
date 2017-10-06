@@ -80,13 +80,18 @@
       (if ns? (symbol (str ns "$macros") name)
               (symbol (str ns "$macros"))))))
 
+(defn elide-quote [x]
+  (cond-> x
+          (and (seq? x) (= 'quote (first x))) (second)))
+
 (defspecial in-ns
   "Switch to namespace"
   [c-state c-env namespace]
-  (when-not (symbol? namespace) (throw (js/Error. "`in-ns` must be passed a symbol.")))
-  (if (contains? (get @c-state :cljs.analyzer/namespaces) namespace)
-    {:ns namespace}
-    (eval c-state c-env `(~'ns ~namespace))))
+  (let [namespace (elide-quote namespace)]
+    (when-not (symbol? namespace) (throw (js/Error. "`in-ns` must be passed a symbol.")))
+    (if (contains? (get @c-state :cljs.analyzer/namespaces) namespace)
+      {:ns namespace}
+      (eval c-state c-env `(~'ns ~namespace)))))
 
 (defspecial ns
   "Wraps `ns` to return :ns in result map"
