@@ -1,4 +1,4 @@
-(defproject cljs-live "0.2.8-SNAPSHOT"
+(defproject cljs-live "0.2.9"
   :description "Tools for bunding dependencies for self-hosted ClojureScript"
   :url "https://github.com/braintripping/cljs-live"
   :license {:name "Eclipse Public License"
@@ -11,12 +11,7 @@
                  [com.cognitect/transit-cljs "0.8.239"]
                  [org.clojure/data.json "0.2.6"]
                  [me.raynes/conch "0.8.0"]
-                 [alembic "0.3.2"]
-                 [org.clojure/tools.reader "1.1.0"]]
-
-  :cljsbuild {:builds []}
-
-  :plugins [[lein-cljsbuild "1.1.7" :exclusions [org.clojure/clojure]]]
+                 [thheller/shadow-cljs "2.0.8"]]
 
   :lein-release {:deploy-via :clojars}
 
