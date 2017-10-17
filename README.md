@@ -1,83 +1,10 @@
 # CLJS-Live
 
-ALPHA
+**cljs-live** is a small library with some convenience functions for evaluating ClojureScript using the self-hosted compiler. It _previously_ also contained a build script for dependency bundling, but that has been happily superceded by [shadow-cljs](https://github.com/thheller/shadow-cljs/), which recently [added support](https://code.thheller.com/blog/shadow-cljs/2017/10/14/bootstrap-support.html) for compiling and loading dependencies for the self-hosted compiler.
 
-Since 2015, it has been possible to write and evaluate ClojureScript in a web browser. This is great! But a tough challenge remains: loading of external libraries into the environment. And what fun is programming if you can't re-use other people's code?
 
-You can use **cljs-live** to precompile 'dependency bundles' which can be loaded on-demand from a web browser.
 
-### What are the main goals?
-
-1. Extensibility: a way to load many different libraries into the same self-hosted ClojureScript dev environment on-demand, without having to rebuild the whole project.
-
-2. Speed: self-host projects are already very large, we should do what we can to keep things snappy (eg. precompilation, lazy loading).
-
-## Usage
-
-### Part I: create dependency bundles.
-
-We start by making a file to describe the bundles we want, usually called `live-deps.clj`:
-
-```clj
-{:cljsbuild-out "resources/public/js/compiled/live-out"
- :bundles-out   "resources/public/js/bundles"
- :source-paths  ["src"]
- :bundles       [ { ... YOUR BUNDLES HERE ...} ]}
-```
-
-In the `:bundles` key, we describe what bundles we want. Each bundle needs a `:name`, a list of `:entry` namespaces (what users should be able to load and use), and a list of `:provided` namespaces (this is usually the `:main` namespace of your compiled app, which will already be in the environment.)
-
-It should look something like this:
-
-```clj
-{...
- :bundles [{:name  my-app.user
-
-            ;; namespaces to include in the bundle. transitive dependencies will be included.
-            :entry #{my-app.user}
-
-            ;; namespaces already provided in your compiled app.
-            :provided #{my-app.core}
-
-            ;; (optional) namespaces whose dependencies should not be followed/included.
-            :entry/no-follow #{}
-
-            ;; (optional) namespaces that should not be included.
-            :entry/exclude #{}
-            }]
-```
-
-From this description, cljs-live will compile your project and write a single JSON file for each bundle, each containing the necessary files, to your `:bundle-out` directory. As well, a copy of the original source for every file in your project is copied to a `sources` subdirectory.
-
-#### Run the script
-
-TODO: better instructions / setup for running the script.
-
-1. Ensure that cljs-live has been added to your :dependencies. `[cljs-live "..version.."]`
-2. Call the `cljs-live.bundle/main` function with a path to the `live-deps.clj` file in our project. eg:
-
-    `lein run -m cljs-live.bundle/main live-deps.clj`
-
-The JSON file is a simple mapping of paths to content. It will contain:
-
-- Analysis cache files for every `:entry` namespace, and its transitive dependencies
-- Compiled javascript for all required macro namespaces, as well as any namespace that isn't already included in the `:provided` build
-- A `"provided"` key with a complete list of namespaces that are expected to be already loaded by the `:provided` app.
-
-### Part II: consume dependency bundles in the browser.
-
-How do we use the bundles created in Part I?
-
-**Feeding files to the compiler**
-
-There are two important functions in `cljs-live.compiler` that probably everyone using this tool would use:
-
-* `add-bundle!` adds a bundle created by the bundle script to a local cache.
-* `load-fn` should be passed as the :load function to `cljs.js` eval/compile functions, and will correctly resolve namespaces to assets in the cache.
-
-**Eval!**
-
-There are also functions in `cljs-live.eval` that make it easy to manage the eval/compile process:
+The **cljs-live.eval** namespace contains two main functions:
 
 * `eval-str` evaluates all of the forms in a given string, and returns the last result.
 * `eval` evaluates a single form.
@@ -93,26 +20,11 @@ These functions do the same thing as what you find in `cljs.js`, but include ext
 
 (The :env key should probably be renamed/revisited. The current namespace is stored in a compiler-env atom; the `ns` and `in-ns` repl-special functions update this atom whenever the user changes the namespace.)
 
-### Example
-
-TODO: update this example, it's stale!
-
-https://cljs-live.firebaseapp.com
-
-### Requirements:
-
-- [Planck REPL](planck-repl.org), version 2.5
-- Clojure
-
-### Notes
-
-- Not all macros work in the self-host environment. Mike Fikes, creator of [Planck,](planck-repl.org) is an expert on the topic, so check out his blog! Eg: [ClojureScript Macro Tower and Loop](http://blog.fikesfarm.com/posts/2015-12-18-clojurescript-macro-tower-and-loop.html), [Collapsing Macro Tower](http://blog.fikesfarm.com/posts/2016-03-04-collapsing-macro-tower.html)
-- Figuring out what does and doesn't work in the self-hosted environment can be tricky.
-
 ----
 
 # Questions & Answers
 
+_this Q&A was written back when cljs-live still contained a build script for dependency-bundling. it has been left here for info purposes. shadow-cljs now does all the dirty work._
 
 ### What is the ClojureScript 'compiler'?
 
@@ -150,16 +62,3 @@ This shortcut comes with two limitations.
 
     This is why every bundle is broken into small pieces, and contains metadata about what namespaces it has provided.
 
-----
-
-### Why is the bundle JSON and not transit?
-
-A flat JSON structure which mimics a directory of files is simple, requires a minimum of parsing, and is easy to inspect in a browser's web console. Analysis caches themselves are transit-encoded.
-
-----
-
-### Why do you include the "provides" key in the bundle?
-
-The "provides" key lists the _transitive_ dependencies of the bundle's :provided namespaces. We need this to avoid loading source code for the same dependency more than once. This allows us to create multiple independent yet overlapping bundles for the same app, so users could choose to load many different libraries without worry that these libraries will interfere with each other.
-
-----

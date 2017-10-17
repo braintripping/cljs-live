@@ -3,7 +3,7 @@
             [cljs.tools.reader :as r]
             [cljs.tools.reader.reader-types :as rt]
             [cljs.analyzer :as ana :refer [*cljs-warning-handlers*]]
-            [cljs-live.compiler :as c]
+            [shadow.cljs.bootstrap.browser :as boot]
             [goog.object :as gobj]
             [clojure.string :as string]
             [goog.crypt.base64 :as base64]
@@ -24,13 +24,8 @@
 
 (defn c-opts
   [c-state env]
-  {:load          (partial c/load-fn c-state)
-   :eval          (fn [{:keys [source cache lang name]}]
-                    #_(println "Eval" {:name   name
-                                       :lang   lang
-                                       :cache  (some-> cache (str) (subs 0 20))
-                                       :source (some-> source (subs 0 150))})
-                    (js/eval source))
+  {:load          (partial boot/load c-state)
+   :eval          cljs/js-eval
    :ns            (:ns @env)
    :context       :expr
    :source-map    true
@@ -172,6 +167,7 @@
                                                                   (mapped-cljs-position source-map)
                                                                   (relative-pos start-position))
                                                         nil))))
+(defonce cljs-cache (atom {}))
 
 (defn compile-str
   ([c-state c-env source] (compile-str c-state c-env source {}))
@@ -187,7 +183,7 @@
          result (atom nil)]
      (binding [*cljs-warning-handlers* [(partial warning-handler form source)]
                r/*data-readers* (conj r/*data-readers* {'js identity})]
-       (swap! c/cljs-cache assoc name source)
+       (swap! cljs-cache assoc name source)
        (cljs/compile-str c-state source file-name opts
                          (fn [{error                       :error
                                compiled-js-with-source-map :value}]

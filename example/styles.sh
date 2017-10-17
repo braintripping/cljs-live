@@ -1,1 +1,0 @@
-node_modules/stylus/bin/stylus -w src/css/styles.styl -o resources/public/styles.css
