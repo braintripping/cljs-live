@@ -1,5 +1,15 @@
 # CLJS-Live
 
+## // deprecation notice //
+
+As of October, 2017, Shadow-CLJS can compile your bootstrap dependencies and help you load them: https://code.thheller.com/blog/shadow-cljs/2017/10/14/bootstrap-support.html
+
+This means `cljs-live` is no longer necessary! yay 🎉.
+
+- Example usage of shadow-cljs: https://github.com/mhuebert/shadow-bootstrap-example
+
+----
+
 **cljs-live** is a small library with some convenience functions for evaluating ClojureScript using the self-hosted compiler. It _previously_ also contained a build script for dependency bundling, but that has been happily superceded by [shadow-cljs](https://github.com/thheller/shadow-cljs/), which recently [added support](https://code.thheller.com/blog/shadow-cljs/2017/10/14/bootstrap-support.html) for compiling and loading dependencies for the self-hosted compiler.
 
 
